@@ -40,7 +40,7 @@ maximumFailures :: Int
 maximumFailures = 3
 
 initialHints :: Int
-initialHints = 7
+initialHints = 8
 
 sortedGame :: [Card]
 sortedGame = concat (concat allCards)
@@ -192,9 +192,9 @@ setContains :: (a -> Bool) -> Set a -> Bool
 setContains p s = not (null (Set.filter p s))
 
 nextPlayer :: Game -> Game
-nextPlayer game = set actingPlayer playerAfter game
+nextPlayer game = set activePlayer playerAfter game
   where
-    oldPlayer = view actingPlayer game
+    oldPlayer = view activePlayer game
     playerAfter =
       view
         (playerHands .
@@ -250,4 +250,4 @@ activeHand =
     (\game hand -> set (playerHands . at (activeP game) . non []) hand game)
 
 activeP :: Game -> PlayerId
-activeP = view actingPlayer
+activeP = view activePlayer

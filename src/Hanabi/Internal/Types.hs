@@ -58,7 +58,7 @@ data Fact
   deriving (Show, Eq, Ord, Generic)
 
 data Game = Game
-  { _actingPlayer :: PlayerId
+  { _activePlayer :: PlayerId
   , _playerHands :: Map PlayerId Hand
   , _deck :: [Card]
   , _playedCards :: Map Color [Card]
@@ -94,6 +94,7 @@ instance ToJSON Color
 instance ToJSON Hint
 
 instance ToJSON Card where
+  toJSON = Aeson.genericToJSON dropUnderscoreOptions
   toEncoding = Aeson.genericToEncoding dropUnderscoreOptions
 
 instance ToJSON Fact
@@ -102,6 +103,7 @@ instance ToJSONKey Color where
   toJSONKey = Aeson.toJSONKeyText (Text.pack . show)
 
 instance ToJSON Game where
+  toJSON = Aeson.genericToJSON dropUnderscoreOptions
   toEncoding = Aeson.genericToEncoding dropUnderscoreOptions
 
 instance FromJSON Number
