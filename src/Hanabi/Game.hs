@@ -7,8 +7,8 @@ import Control.Lens
        (over, view, to, ix, traversed, at, non, set, lens, Lens')
 
 import Control.Arrow ((>>>))
-import qualified Data.List as List (delete, deleteBy)
 import Data.Function (on)
+import qualified Data.List as List (delete, deleteBy)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Set (Set)
@@ -182,14 +182,11 @@ insertFact fact@(Not _) facts
   | otherwise = Set.insert fact facts
   where
     containsPositive =
-      setContains (\f -> isPositiveFact f && not (fact `differentType` f)) facts
+      any (\f -> isPositiveFact f && not (fact `differentType` f)) facts
 insertFact fact facts =
   Set.insert
     fact
     (Set.filter (\f -> isPositiveFact f || fact `differentType` f) facts)
-
-setContains :: (a -> Bool) -> Set a -> Bool
-setContains p s = not (null (Set.filter p s))
 
 nextPlayer :: Game -> Game
 nextPlayer game = set activePlayer playerAfter game
