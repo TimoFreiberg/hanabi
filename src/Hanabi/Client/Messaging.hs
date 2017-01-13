@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 
 module Hanabi.Client.Messaging where
 
@@ -45,32 +46,67 @@ newtype Score =
   Score Int
   deriving (Show, FromJSON, ToJSON)
 
-instance FromJSON Response
+instance FromJSON Response where
+  parseJSON (Object o) = o .: "msg_type" >>= decodeResponse
+    where
+      decodeResponse :: Text -> _
+      decodeResponse "ERROR_RESPONSE" =
+        ErrorResponse <$> o .: "explanation" <*> o .: "err_details"
+      decodeResponse "CONNECTION_RESPONSE" = ConnectionResponse <$> o .: "name"
+      decodeResponse "DISCARD_CARD_RESPONSE" =
+        DiscardCardResponse <$> decodeGameState o
+      decodeResponse "PLAY_CARD_RESPONSE" =
+        PlayCardResponse <$> decodeGameState o
+      decodeResponse "HINT_COLOR_RESPONSE" =
+        HintColorResponse <$> decodeGameState o
+      decodeResponse "HINT_NUMBER_RESPONSE" =
+        HintNumberResponse <$> decodeGameState o
+      decodeResponse "GAME_OVER_RESPONSE" = GameOverResponse <$> o .: "score"
+      decodeResponse "GAME_START_RESPONSE" = pure GameStartResponse
+  parseJSON _ = mempty
+
+decodeGameState o =
+  Game <$> o .: "next_player" <*> decodePlayerHands o <*> o .: "deck" <*>
+  decodePlayedCards o <*>
+  decodeDiscardCards o <*>
+  o .: "hint_tokens" <*>
+  o .: "err_tokens" <*>
+  decodeLastPlayer o
+
+decodePlayerHands = undefined
+
+decodePlayedCards = undefined
+
+decodeDiscardCards = const (pure [])
+
+decodeLastPlayer = const (pure Nothing)
 
 instance ToJSON Response where
   toJSON msg = object (["msg_type" .= msgType] ++ msgPayload)
     where
-      (msgType, msgPayload) = msgData msg
       msgData :: Response -> (Text, [(Text, Value)])
+      (msgType, msgPayload) = msgData msg
       msgData (ErrorResponse explanation details) =
         ( "ERROR_RESPONSE"
         , ["explanation" .= explanation, "err_details" .= details])
       msgData (ConnectionResponse name) =
         ("CONNECTION_RESPONSE", ["name" .= name])
       msgData (DiscardCardResponse game) =
-        ("DISCARD_CARD_RESPONSE", gameState game)
-      msgData (PlayCardResponse game) = ("PLAY_CARD_RESPONSE", gameState game)
-      msgData (HintColorResponse game) = ("HINT_COLOR_RESPONSE", gameState game)
+        ("DISCARD_CARD_RESPONSE", encodeGameState game)
+      msgData (PlayCardResponse game) =
+        ("PLAY_CARD_RESPONSE", encodeGameState game)
+      msgData (HintColorResponse game) =
+        ("HINT_COLOR_RESPONSE", encodeGameState game)
       msgData (HintNumberResponse game) =
-        ("HINT_NUMBER_RESPONSE", gameState game)
+        ("HINT_NUMBER_RESPONSE", encodeGameState game)
       msgData (GameOverResponse score) =
         ("GAME_OVER_RESPONSE", ["score" .= score])
       msgData (GameStartResponse) = ("GAME_START_RESPONSE", mempty)
 
-gameState
+encodeGameState
   :: KeyValue t
   => Game -> [t]
-gameState game =
+encodeGameState game =
   [ "next_player" .= view activePlayer game
   , "game_state" .=
     object
