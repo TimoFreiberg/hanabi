@@ -1,7 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Hanabi.Client.Messaging where
 
@@ -47,9 +47,10 @@ newtype Score =
   deriving (Show, FromJSON, ToJSON)
 
 instance FromJSON Response where
-  parseJSON (Object o) = o .: "msg_type" >>= decodeResponse
+  parseJSON (Object o) = do
+    (msgType :: Text) <- o .: "msg_type"
+    decodeResponse msgType
     where
-      decodeResponse :: Text -> _
       decodeResponse "ERROR_RESPONSE" =
         ErrorResponse <$> o .: "explanation" <*> o .: "err_details"
       decodeResponse "CONNECTION_RESPONSE" = ConnectionResponse <$> o .: "name"
@@ -120,6 +121,7 @@ encodeGameState game =
           game
       , "players" .= encodePlayers (view (playerHands) game)
       , "deck" .= view deck game
+      , "discarded_cards" .= view discardedCards game
       ]
   ]
 
