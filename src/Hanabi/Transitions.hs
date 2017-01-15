@@ -45,5 +45,6 @@ drawCard game =
     Nothing -> game
 
 maybeIncrementHintCount :: Card -> Game -> Game
-maybeIncrementHintCount (Card _ Five) = incrementHintCount
-maybeIncrementHintCount _ = id
+maybeIncrementHintCount card
+  | isFive card = incrementHintCount
+  | otherwise = id

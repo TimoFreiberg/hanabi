@@ -43,9 +43,9 @@ initialHints :: Int
 initialHints = 8
 
 sortedGame :: [Card]
-sortedGame = concat (concat allCards)
+sortedGame = zipWith (set cardId) [0 ..] (concat (concat allCards))
   where
-    numberCards col num = replicate (occurrences num) (Card col num)
+    numberCards col num = replicate (occurrences num) (Card (-1) col num)
     colorCards col = map (numberCards col) numbers
     allCards = map colorCards colors
 
@@ -117,14 +117,15 @@ initState startId ids = do
     cleanIds = startId : List.delete startId ids
 
 canPlayCard :: Card -> Game -> Bool
-canPlayCard (Card col num1) game =
-  case getStack col game of
-    [] -> num1 == One
-    Card _ num2:_ -> num2 `isSuccessor` num1
+canPlayCard card game =
+  case getStack (view color card) game of
+    [] -> (num card) == One
+    card2:_ -> (num card2) `isSuccessor` (num card)
+  where
+    num = view number
 
 isFive :: Card -> Bool
-isFive (Card _ Five) = True
-isFive _ = False
+isFive card = view number card == Five
 
 tooManyFailures :: Game -> Bool
 tooManyFailures game = view fuckups game >= maximumFailures
@@ -163,18 +164,22 @@ giveHint :: Hint -> PlayerId -> Game -> Game
 giveHint hint player = over (playerHands . at player . non []) (applyHint hint)
 
 applyHint :: Hint -> Hand -> Hand
-applyHint (ColorHint col1) =
-  over traversed (\(card, facts) -> (card, insertFact (makeFact card) facts))
+applyHint (ColorHint hintCol) =
+  over
+    traversed
+    (\(card, facts) -> (card, insertFact (makeFact (view color card)) facts))
   where
-    makeFact (Card col2 _)
-      | col1 == col2 = IsColor col1
-      | otherwise = Not (IsColor col1)
-applyHint (NumberHint num1) =
-  over traversed (\(card, facts) -> (card, insertFact (makeFact card) facts))
+    makeFact cardCol
+      | hintCol == cardCol = IsColor hintCol
+      | otherwise = Not (IsColor hintCol)
+applyHint (NumberHint hintNum) =
+  over
+    traversed
+    (\(card, facts) -> (card, insertFact (makeFact (view number card)) facts))
   where
-    makeFact (Card _ num2)
-      | num1 == num2 = IsNumber num1
-      | otherwise = Not (IsNumber num1)
+    makeFact cardNum
+      | hintNum == cardNum = IsNumber hintNum
+      | otherwise = Not (IsNumber hintNum)
 
 insertFact :: Fact -> Set Fact -> Set Fact
 insertFact fact@(Not _) facts
