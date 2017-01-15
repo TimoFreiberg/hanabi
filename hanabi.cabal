@@ -16,7 +16,7 @@ cabal-version:       >=1.10
 library
   hs-source-dirs:      src
   exposed-modules:     Hanabi
-                     , Hanabi.Internal.Types
+                     , Hanabi.Types
                      , Hanabi.Repl
                      , Hanabi.Transitions
                      , Hanabi.Print

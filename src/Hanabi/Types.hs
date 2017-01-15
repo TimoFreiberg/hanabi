@@ -4,22 +4,23 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE StandaloneDeriving #-}
 
-module Hanabi.Internal.Types where
+module Hanabi.Types where
 
-import Data.String (IsString)
 import Control.Lens (makeLenses)
-import Data.Map.Strict (Map)
-import Data.Set (Set)
-import Data.Text (Text)
-import qualified Data.Text as Text
-import GHC.Generics
 import Data.Aeson (ToJSON, FromJSON, ToJSONKey, FromJSONKey)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import Data.List (isPrefixOf)
+import Data.Map.Strict (Map)
+import Data.Set (Set)
+import Data.String (IsString)
+import Data.Text (Text)
+import qualified Data.Text as Text
+import GHC.Generics
 
 data Card = Card
-  { _color :: Color
+  { _cardId :: Int
+  , _color :: Color
   , _number :: Number
   } deriving (Show, Eq, Ord, Generic)
 
@@ -47,7 +48,16 @@ makeLenses ''Card
 
 newtype PlayerId =
   PlayerId Text
-  deriving (Eq, Ord, Show, IsString, Generic, FromJSON, ToJSON, ToJSONKey, FromJSONKey)
+  deriving ( Eq
+           , Ord
+           , Show
+           , IsString
+           , Generic
+           , FromJSON
+           , ToJSON
+           , ToJSONKey
+           , FromJSONKey
+           )
 
 type Hand = [(Card, Set Fact)]
 
@@ -73,7 +83,7 @@ data Hint
   | NumberHint Number
   deriving (Show, Generic)
 
-class IsHint a  where
+class IsHint a where
   toHint :: a -> Hint
 
 instance IsHint Hint where
@@ -125,9 +135,7 @@ instance FromJSON Game where
 
 dropUnderscoreOptions :: Aeson.Options
 dropUnderscoreOptions =
-  Aeson.defaultOptions
-  { Aeson.fieldLabelModifier = dropPrefixUnderscore
-  }
+  Aeson.defaultOptions {Aeson.fieldLabelModifier = dropPrefixUnderscore}
 
 dropPrefixUnderscore :: String -> String
 dropPrefixUnderscore s
