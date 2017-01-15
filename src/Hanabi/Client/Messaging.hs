@@ -5,13 +5,18 @@
 
 module Hanabi.Client.Messaging where
 
+import Control.Applicative ((<|>))
 import Control.Lens (view, to, filtered)
+import Control.Monad (foldM)
 import Data.Aeson
 import Data.Aeson.Encode.Pretty (encodePretty)
 import qualified Data.Map.Strict as Map
+import Data.Map.Strict (Map)
 import Data.Maybe (fromJust)
 import qualified Data.Set as Set
+import Data.Set (Set)
 import Data.Text (Text)
+import qualified Data.Text as Text
 import GHC.Generics (Generic)
 
 import qualified Data.ByteString.Lazy as ByteString
@@ -66,21 +71,50 @@ instance FromJSON Response where
       decodeResponse "GAME_START_RESPONSE" = pure GameStartResponse
   parseJSON _ = mempty
 
-decodeGameState o =
-  Game <$> o .: "next_player" <*> decodePlayerHands o <*> o .: "deck" <*>
-  decodePlayedCards o <*>
-  decodeDiscardCards o <*>
-  o .: "hint_tokens" <*>
-  o .: "err_tokens" <*>
-  decodeLastPlayer o
+decodeGameState o = do
+  gameState <- o .: "game_state"
+  Game <$> o .: "next_player" <*> decodePlayerHands gameState <*>
+    decodeCards "deck" gameState <*>
+    (decodePlayedCards gameState) <*>
+    decodeCards "discarded_cards" gameState <*>
+    gameState .: "hint_tokens" <*>
+    gameState .: "err_tokens" <*>
+    decodeLastPlayer o
 
-decodePlayerHands = undefined
+decodeCards key o = do
+  cards <- o .: key
+  traverse decodeCard cards
 
-decodePlayedCards = undefined
+decodeCard (Object o) = Card <$> o .: "id" <*> o .: "color" <*> o .: "number"
+decodeCard _ = mempty
 
-decodeDiscardCards = const (pure [])
+decodePlayerHands o = do
+  (hands :: Array) <- o .: "players"
+  foldM decodeHand Map.empty hands
+  where
+    decodeHand m (Object h) = do
+      name <- h .: "name"
+      cards <- h .: "cards"
+      (hand :: Hand) <- traverse decodeCardInHand cards
+      pure (Map.insert name hand m)
+    decodeHand _ _ = mempty
+    decodeCardInHand c = do
+      card <- c .: "card"
+      card' <- decodeCard card
+      -- knowledge <- c .: "knowledge" --FIXME
+      pure (card', Set.empty)
 
-decodeLastPlayer = const (pure Nothing)
+decodePlayedCards o = do
+  played <- o .: "played_cards"
+  let addStack m col = do
+        maybeNum <- played .: (Text.pack (show col)) <|> (pure Nothing)
+        case maybeNum of
+          Just num ->
+            pure (Map.insert col (fmap (Card (-1) col) [One .. num]) m)
+          Nothing -> pure m
+  foldM addStack Map.empty Game.colors
+
+decodeLastPlayer = const (pure Nothing) --FIXME
 
 instance ToJSON Response where
   toJSON msg = object (["msg_type" .= msgType] ++ msgPayload)
@@ -120,10 +154,16 @@ encodeGameState game =
            filtered (not . Map.null) . to (fmap ((view number) . head)))
           game
       , "players" .= encodePlayers (view (playerHands) game)
-      , "deck" .= view deck game
-      , "discarded_cards" .= view discardedCards game
+      , "deck" .= viewCards deck
+      , "discarded_cards" .= viewCards discardedCards
       ]
   ]
+  where
+    viewCards l = view (l . to (fmap encodeCard)) game
+
+encodeCard c =
+  object
+    ["id" .= view cardId c, "color" .= view color c, "number" .= view number c]
 
 encodePlayers players =
   [ object ["name" .= name, "cards" .= encodeCardInHand hand]
@@ -131,7 +171,7 @@ encodePlayers players =
   ]
 
 encodeCardInHand hand =
-  [ object ["card" .= card, "knowledge" .= encodeCardKnowledge facts]
+  [ object ["card" .= encodeCard card, "knowledge" .= encodeCardKnowledge facts]
   | (card, facts) <- hand
   ]
 
@@ -160,6 +200,9 @@ testPlayers = test (encodePlayers players)
 testCardKnowledge =
   test $ fmap (fmap (encodeCardKnowledge . snd)) $ Map.elems players
 
+testDecode :: Maybe Response
+testDecode = decode (encode (HintNumberResponse game))
+
 test x = ByteString.putStrLn (encodePretty x)
 
 testGame = test (HintNumberResponse game)
@@ -167,4 +210,4 @@ testGame = test (HintNumberResponse game)
 game :: Game
 game =
   fromJust . decode $
-  "{\"activePlayer\":\"1\",\"playerHands\":{\"alice\":[[{\"color\":\"White\",\"number\":\"Two\"},[]],[{\"color\":\"Green\",\"number\":\"Four\"},[{\"tag\":\"Not\",\"contents\":{\"tag\":\"IsNumber\",\"contents\":\"One\"}}]],[{\"color\":\"Yellow\",\"number\":\"Five\"},[{\"tag\":\"Not\",\"contents\":{\"tag\":\"IsNumber\",\"contents\":\"One\"}}]],[{\"color\":\"White\",\"number\":\"Two\"},[{\"tag\":\"Not\",\"contents\":{\"tag\":\"IsNumber\",\"contents\":\"One\"}}]],[{\"color\":\"Yellow\",\"number\":\"Two\"},[{\"tag\":\"Not\",\"contents\":{\"tag\":\"IsNumber\",\"contents\":\"One\"}}]]],\"bob\":[[{\"color\":\"Red\",\"number\":\"Four\"},[]],[{\"color\":\"Red\",\"number\":\"Two\"},[{\"tag\":\"Not\",\"contents\":{\"tag\":\"IsNumber\",\"contents\":\"One\"}},{\"tag\":\"Not\",\"contents\":{\"tag\":\"IsNumber\",\"contents\":\"Three\"}}]],[{\"color\":\"White\",\"number\":\"Three\"},[{\"tag\":\"IsNumber\",\"contents\":\"Three\"}]],[{\"color\":\"Yellow\",\"number\":\"Three\"},[{\"tag\":\"IsNumber\",\"contents\":\"Three\"}]],[{\"color\":\"Blue\",\"number\":\"Three\"},[{\"tag\":\"IsNumber\",\"contents\":\"Three\"}]]],\"charlie\":[[{\"color\":\"Green\",\"number\":\"One\"},[]],[{\"color\":\"Green\",\"number\":\"Five\"},[{\"tag\":\"Not\",\"contents\":{\"tag\":\"IsNumber\",\"contents\":\"Two\"}}]],[{\"color\":\"Yellow\",\"number\":\"One\"},[{\"tag\":\"Not\",\"contents\":{\"tag\":\"IsNumber\",\"contents\":\"Two\"}}]],[{\"color\":\"Red\",\"number\":\"Two\"},[{\"tag\":\"IsNumber\",\"contents\":\"Two\"}]],[{\"color\":\"White\",\"number\":\"Four\"},[{\"tag\":\"Not\",\"contents\":{\"tag\":\"IsNumber\",\"contents\":\"Two\"}}]]]},\"deck\":[{\"color\":\"White\",\"number\":\"One\"},{\"color\":\"Blue\",\"number\":\"Four\"},{\"color\":\"Yellow\",\"number\":\"Four\"},{\"color\":\"Blue\",\"number\":\"One\"},{\"color\":\"Green\",\"number\":\"Two\"},{\"color\":\"Red\",\"number\":\"Three\"},{\"color\":\"Red\",\"number\":\"Five\"},{\"color\":\"Red\",\"number\":\"One\"},{\"color\":\"Blue\",\"number\":\"Four\"},{\"color\":\"White\",\"number\":\"One\"},{\"color\":\"Green\",\"number\":\"Three\"},{\"color\":\"Blue\",\"number\":\"Three\"},{\"color\":\"White\",\"number\":\"One\"},{\"color\":\"Yellow\",\"number\":\"Four\"},{\"color\":\"Green\",\"number\":\"One\"},{\"color\":\"White\",\"number\":\"Three\"},{\"color\":\"Yellow\",\"number\":\"One\"},{\"color\":\"White\",\"number\":\"Four\"},{\"color\":\"Green\",\"number\":\"One\"},{\"color\":\"Green\",\"number\":\"Three\"},{\"color\":\"Blue\",\"number\":\"One\"},{\"color\":\"Blue\",\"number\":\"Five\"},{\"color\":\"Red\",\"number\":\"Four\"},{\"color\":\"Green\",\"number\":\"Four\"},{\"color\":\"Red\",\"number\":\"One\"},{\"color\":\"White\",\"number\":\"Five\"},{\"color\":\"Green\",\"number\":\"Two\"},{\"color\":\"Blue\",\"number\":\"Two\"},{\"color\":\"Yellow\",\"number\":\"Two\"},{\"color\":\"Yellow\",\"number\":\"Three\"},{\"color\":\"Red\",\"number\":\"Three\"}],\"playedCards\":{\"Yellow\":[{\"color\":\"Yellow\",\"number\":\"One\"}],\"Blue\":[{\"color\":\"Blue\",\"number\":\"Two\"},{\"color\":\"Blue\",\"number\":\"One\"}],\"Red\":[{\"color\":\"Red\",\"number\":\"One\"}]},\"discardedCards\":[],\"hints\":3,\"fuckups\":0,\"lastPlayer\":null}"
+  "{\"activePlayer\":\"Alice\",\"playerHands\":{\"Alice\":[[{\"cardId\":47,\"color\":\"Red\",\"number\":\"Four\"},[]],[{\"cardId\":26,\"color\":\"Green\",\"number\":\"Three\"},[]],[{\"cardId\":19,\"color\":\"Yellow\",\"number\":\"Five\"},[]],[{\"cardId\":8,\"color\":\"White\",\"number\":\"Four\"},[{\"tag\":\"Not\",\"contents\":{\"tag\":\"IsNumber\",\"contents\":\"One\"}}]],[{\"cardId\":24,\"color\":\"Green\",\"number\":\"Two\"},[{\"tag\":\"Not\",\"contents\":{\"tag\":\"IsNumber\",\"contents\":\"One\"}}]]],\"Bob\":[[{\"cardId\":4,\"color\":\"White\",\"number\":\"Two\"},[]],[{\"cardId\":45,\"color\":\"Red\",\"number\":\"Three\"},[]],[{\"cardId\":28,\"color\":\"Green\",\"number\":\"Four\"},[]],[{\"cardId\":7,\"color\":\"White\",\"number\":\"Four\"},[]],[{\"cardId\":27,\"color\":\"Green\",\"number\":\"Four\"},[]]],\"Charlie\":[[{\"cardId\":38,\"color\":\"Blue\",\"number\":\"Four\"},[]],[{\"cardId\":35,\"color\":\"Blue\",\"number\":\"Three\"},[]],[{\"cardId\":42,\"color\":\"Red\",\"number\":\"One\"},[{\"tag\":\"Not\",\"contents\":{\"tag\":\"IsNumber\",\"contents\":\"Two\"}}]],[{\"cardId\":44,\"color\":\"Red\",\"number\":\"Two\"},[{\"tag\":\"IsNumber\",\"contents\":\"Two\"},{\"tag\":\"Not\",\"contents\":{\"tag\":\"IsColor\",\"contents\":\"White\"}}]],[{\"cardId\":17,\"color\":\"Yellow\",\"number\":\"Four\"},[{\"tag\":\"Not\",\"contents\":{\"tag\":\"IsColor\",\"contents\":\"White\"}},{\"tag\":\"Not\",\"contents\":{\"tag\":\"IsNumber\",\"contents\":\"One\"}},{\"tag\":\"Not\",\"contents\":{\"tag\":\"IsNumber\",\"contents\":\"Two\"}}]]]},\"deck\":[{\"cardId\":10,\"color\":\"Yellow\",\"number\":\"One\"},{\"cardId\":40,\"color\":\"Red\",\"number\":\"One\"},{\"cardId\":5,\"color\":\"White\",\"number\":\"Three\"},{\"cardId\":29,\"color\":\"Green\",\"number\":\"Five\"},{\"cardId\":18,\"color\":\"Yellow\",\"number\":\"Four\"},{\"cardId\":25,\"color\":\"Green\",\"number\":\"Three\"},{\"cardId\":22,\"color\":\"Green\",\"number\":\"One\"},{\"cardId\":9,\"color\":\"White\",\"number\":\"Five\"},{\"cardId\":21,\"color\":\"Green\",\"number\":\"One\"},{\"cardId\":49,\"color\":\"Red\",\"number\":\"Five\"},{\"cardId\":20,\"color\":\"Green\",\"number\":\"One\"},{\"cardId\":37,\"color\":\"Blue\",\"number\":\"Four\"},{\"cardId\":36,\"color\":\"Blue\",\"number\":\"Three\"},{\"cardId\":15,\"color\":\"Yellow\",\"number\":\"Three\"},{\"cardId\":31,\"color\":\"Blue\",\"number\":\"One\"},{\"cardId\":0,\"color\":\"White\",\"number\":\"One\"},{\"cardId\":13,\"color\":\"Yellow\",\"number\":\"Two\"},{\"cardId\":46,\"color\":\"Red\",\"number\":\"Three\"},{\"cardId\":3,\"color\":\"White\",\"number\":\"Two\"},{\"cardId\":6,\"color\":\"White\",\"number\":\"Three\"},{\"cardId\":39,\"color\":\"Blue\",\"number\":\"Five\"},{\"cardId\":16,\"color\":\"Yellow\",\"number\":\"Three\"},{\"cardId\":34,\"color\":\"Blue\",\"number\":\"Two\"},{\"cardId\":48,\"color\":\"Red\",\"number\":\"Four\"},{\"cardId\":23,\"color\":\"Green\",\"number\":\"Two\"},{\"cardId\":12,\"color\":\"Yellow\",\"number\":\"One\"},{\"cardId\":14,\"color\":\"Yellow\",\"number\":\"Two\"}],\"playedCards\":{\"White\":[{\"cardId\":2,\"color\":\"White\",\"number\":\"One\"}],\"Yellow\":[{\"cardId\":11,\"color\":\"Yellow\",\"number\":\"One\"}],\"Blue\":[{\"cardId\":33,\"color\":\"Blue\",\"number\":\"Two\"},{\"cardId\":32,\"color\":\"Blue\",\"number\":\"One\"}],\"Red\":[{\"cardId\":43,\"color\":\"Red\",\"number\":\"Two\"},{\"cardId\":41,\"color\":\"Red\",\"number\":\"One\"}]},\"discardedCards\":[{\"cardId\":30,\"color\":\"Blue\",\"number\":\"One\"},{\"cardId\":1,\"color\":\"White\",\"number\":\"One\"}],\"hints\":5,\"fuckups\":1,\"lastPlayer\":null}"
