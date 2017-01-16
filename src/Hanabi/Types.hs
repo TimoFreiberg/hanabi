@@ -75,7 +75,7 @@ data Game = Game
   , _discardedCards :: [Card]
   , _hints :: Int
   , _fuckups :: Int
-  , _lastPlayer :: Maybe PlayerId
+  , _turnsLeft :: Maybe Int
   } deriving (Show, Eq, Generic)
 
 data Hint

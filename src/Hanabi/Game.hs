@@ -4,7 +4,7 @@
 module Hanabi.Game where
 
 import Control.Lens
-       (over, view, to, ix, traversed, at, non, set, lens, Lens')
+       (over, view, to, ix, traversed, at, non, set, lens, Lens', mapped)
 
 import Control.Arrow ((>>>))
 import Data.Function (on)
@@ -214,15 +214,15 @@ addToHand card = over activeHand ((card, Set.empty) :)
 
 startLastRound :: Game -> Game
 startLastRound game =
-  case view lastPlayer game of
-    Nothing -> set lastPlayer (Just (activeP game)) game
-    Just _ -> game
+  case view turnsLeft game of
+    Nothing -> set turnsLeft (Just (view (playerHands . to Map.size) game)) game
+    Just _ -> over (turnsLeft . mapped) (subtract 1) game
 
 deckEmpty :: Game -> Bool
 deckEmpty = view (deck . to null)
 
 lastRoundFinished :: Game -> Bool
-lastRoundFinished game = maybe False (activeP game ==) (view lastPlayer game)
+lastRoundFinished game = maybe False (0 ==) (view turnsLeft game)
 
 getScore :: Game -> Int
 getScore =

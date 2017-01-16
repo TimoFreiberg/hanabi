@@ -26,14 +26,15 @@ hintGiven hint playerId =
   endTurn . decrementHintCount . giveHint (toHint hint) playerId
 
 endTurn :: Game -> Either GameOver Game
-endTurn game =
-  if any ($ game) [lastRoundFinished, tooManyFailures, allStacksFilled]
-    then Left (gameOver game)
-    else Right
-           (nextPlayer
-              (if deckEmpty game
-                 then startLastRound game
-                 else game))
+endTurn game
+  | any ($ game) [lastRoundFinished, tooManyFailures, allStacksFilled] =
+    Left (gameOver game)
+  | otherwise = (Right . nextPlayer . checkLastRound) game
+  where
+    checkLastRound =
+      if deckEmpty game
+        then startLastRound
+        else id
 
 gameOver :: Game -> GameOver
 gameOver game = GameOver (getScore game)
@@ -43,8 +44,3 @@ drawCard game =
   case popFromDeck game of
     Just (card, game') -> addToHand card game'
     Nothing -> game
-
-maybeIncrementHintCount :: Card -> Game -> Game
-maybeIncrementHintCount card
-  | isFive card = incrementHintCount
-  | otherwise = id
