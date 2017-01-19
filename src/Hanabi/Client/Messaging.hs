@@ -1,5 +1,4 @@
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DuplicateRecordFields #-}
@@ -29,13 +28,13 @@ import qualified Hanabi.Game as Hanabi
 import qualified Hanabi.Repl as Repl
 
 data Request
-  = ConnectionRequest Hanabi.PlayerId
-  | DiscardCardRequest Card
-  | HintColorRequest Hanabi.PlayerId
-                     Hanabi.Color
-  | HintNumberRequest Hanabi.PlayerId
-                      Hanabi.Number
-  | PlayCardRequest Card
+  = ConnectionRequest { name :: Hanabi.PlayerId}
+  | DiscardCardRequest { discarded_card :: Card}
+  | HintColorRequest { target_player :: Hanabi.PlayerId
+                    ,  color :: Hanabi.Color}
+  | HintNumberRequest { target_player :: Hanabi.PlayerId
+                     ,  number :: Hanabi.Number}
+  | PlayCardRequest { card :: Card}
   | GameStartRequest
   deriving (Show, Generic)
 
