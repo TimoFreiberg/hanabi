@@ -2,14 +2,17 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 
 module Hanabi.Client.Messaging where
 
 import Control.Applicative ((<|>))
 import Control.Lens (view, to, filtered)
-import Control.Monad (foldM)
+import Control.Monad (foldM, liftM2)
 import Data.Aeson
 import Data.Aeson.Encode.Pretty (encodePretty)
+import Data.Aeson.Types
+import Data.Char (toUpper)
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import Data.Maybe (fromJust)
@@ -22,8 +25,8 @@ import Prelude hiding (id)
 
 import qualified Data.ByteString.Lazy as ByteString
 import qualified Hanabi as Hanabi
-import qualified Hanabi.Game as Game
-import Hanabi.Repl
+import qualified Hanabi.Game as Hanabi
+import qualified Hanabi.Repl as Repl
 
 data Request
   = ConnectionRequest Hanabi.PlayerId
@@ -34,12 +37,19 @@ data Request
                       Hanabi.Number
   | PlayCardRequest Card
   | GameStartRequest
-  deriving (Show, Generic, FromJSON, ToJSON)
+  deriving (Show, Generic)
+
+instance FromJSON Request where
+  parseJSON = genericParseJSON options
+
+instance ToJSON Request where
+  toJSON = genericToJSON options
+  toEncoding = genericToEncoding options
 
 data Response
   = ErrorResponse Text
                   (Maybe Text)
-  | ConnectionResponse Hanabi.PlayerId
+  | ConnectionResponse { name :: Hanabi.PlayerId}
   | DiscardCardResponse { next_player :: Text
                        ,  game_state :: GameState
                        ,  turns_left :: Maybe Int}
@@ -52,9 +62,24 @@ data Response
   | HintNumberResponse { next_player :: Text
                       ,  game_state :: GameState
                       ,  turns_left :: Maybe Int}
-  | GameOverResponse Score
+  | GameOverResponse { score :: Score}
   | GameStartResponse
-  deriving (Show, Generic, FromJSON, ToJSON)
+  deriving (Show, Generic)
+
+instance FromJSON Response where
+  parseJSON = genericParseJSON options
+
+instance ToJSON Response where
+  toJSON = genericToJSON options
+  toEncoding = genericToEncoding options
+
+options =
+  defaultOptions
+  { constructorTagModifier = rustStyleTags
+  , sumEncoding = TaggedObject "msg_type" "payload"
+  }
+
+rustStyleTags = map toUpper . camelTo2 '_'
 
 newtype Score =
   Score Int
@@ -94,18 +119,70 @@ data Card = Card
   } deriving (Show, Generic, FromJSON, ToJSON)
 
 toHanabi :: Hanabi.PlayerId -> GameState -> Maybe Int -> Hanabi.Game
-toHanabi playerId (GameState hints maxHints errs played players deck discardedCards) turnsLeft =
-  Hanabi.Game playerId mkHands mkDeck mkPlayed mkDiscarded hints errs undefined
+toHanabi playerId (GameState hints _ errs played playerHands currentDeck discardedCards) turnsLeft =
+  Hanabi.Game playerId mkHands mkDeck mkPlayed mkDiscarded hints errs turnsLeft
   where
-    mkDeck = undefined
-    mkDiscarded = undefined
-    mkHands = undefined
-    mkPlayed = undefined
+    mkDeck = map toCard currentDeck
+    mkDiscarded = map toCard discardedCards
+    mkHands = foldr insertHand Map.empty playerHands
+    insertHand (Player playerName cs) m =
+      Map.insert (Hanabi.PlayerId playerName) (map toHand cs) m
+    mkPlayed = foldr mkColorStack Map.empty (Map.assocs played)
+    mkColorStack (col, num) m =
+      Map.insert col (map (\n -> Hanabi.Card (-1) col n) [Hanabi.One .. num]) m
 
--- testDecode = eitherDecode (encode (HintNumberResponse game))
-test x = ByteString.putStrLn (encodePretty x)
+fromHanabi (Hanabi.Game playerId hHands hDeck hPlayed hDiscarded hHints hErrs hTurnsLeft) =
+  (mkPlayerName, mkGameState, hTurnsLeft)
+  where
+    mkPlayerName = (\(Hanabi.PlayerId x) -> x) playerId
+    mkGameState = GameState hHints 8 hErrs mkPlayed mkHands mkDeck mkDiscarded
+    mkDeck = fmap fromCard hDeck
+    mkDiscarded = fmap fromCard hDiscarded
+    mkPlayed =
+      fmap
+        ((\(Hanabi.Card _ _ n) -> n) . head)
+        (Map.filter (not . null) hPlayed)
+    mkHands = fmap fromHand (Map.assocs hHands)
 
--- testGame = test (HintNumberResponse "Alice" (GameState 5 8 1 (Map.fromList [])))
+fromCard (Hanabi.Card cardId col num) = Card cardId col num
+
+toCard (Card cardId col num) = Hanabi.Card cardId col num
+
+toHand (CardInHand c kn) = (toCard c, mkFacts c kn)
+
+fromHand ((Hanabi.PlayerId playerId), hand) = Player playerId mkHand
+  where
+    mkHand = fmap fromHand hand
+    fromHand (hCard@(Hanabi.Card _ col num), facts) =
+      CardInHand
+        (fromCard hCard)
+        (CardKnowledge posCol posNum (extractCols negCols) (extractNums negNums))
+      where
+        (numberFacts, colorFacts) = Set.partition Hanabi.isNumberFact facts
+        (posCols, negCols) = Set.partition Hanabi.isPositiveFact colorFacts
+        (posNums, negNums) = Set.partition Hanabi.isPositiveFact numberFacts
+        posCol = not (Set.null posCols)
+        posNum = not (Set.null posNums)
+        extractCols = Set.map (\(Hanabi.Not (Hanabi.IsColor c)) -> c)
+        extractNums = Set.map (\(Hanabi.Not (Hanabi.IsNumber n)) -> n)
+
+mkFacts (Card _ col num) (CardKnowledge isCol isNum notCol notNum) =
+  Set.unions [Set.fromList (colPos ++ numPos), colNeg, numNeg]
+  where
+    colPos =
+      if isCol
+        then [Hanabi.IsColor col]
+        else []
+    numPos =
+      if isNum
+        then [Hanabi.IsNumber num]
+        else []
+    colNeg = Set.map (Hanabi.Not . Hanabi.IsColor) notCol
+    numNeg = Set.map (Hanabi.Not . Hanabi.IsNumber) notNum
+
+fromRight
+  :: Show l
+  => Either l r -> r
 fromRight (Right x) = x
 fromRight (Left x) = error $ show x
 

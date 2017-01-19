@@ -33,6 +33,8 @@ library
                      , transformers
                      , QuickCheck
                      , unordered-containers 
+                     , websockets
+                     , async
   default-language:    Haskell2010
 
 executable hanabi-exe
