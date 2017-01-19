@@ -8,7 +8,7 @@ import Control.Concurrent.MVar
        (MVar, newEmptyMVar, takeMVar, putMVar)
 import Control.Monad.IO.Class (liftIO)
 import qualified Control.Monad.Logger as Logger
-import Data.Aeson (encode, decode, ToJSON)
+import Data.Aeson (encode, eitherDecode)
 import Data.ByteString.Lazy (ByteString)
 import Data.Monoid ((<>))
 import qualified Data.Text as Text
@@ -39,10 +39,8 @@ send c x = WS.sendTextData c (encode x)
 
 receive c = WS.receiveData c
 
-exchange
-  :: ToJSON a
-  => WS.Connection -> a -> IO ByteString
-exchange c x = send c x >> receive c
+exchange :: WS.Connection -> Request -> IO (Either String Response)
+exchange c x = send c x >> (fmap eitherDecode (receive c))
 
 go = async startClient
 
