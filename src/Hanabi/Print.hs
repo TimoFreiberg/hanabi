@@ -16,8 +16,8 @@ prettyPrint
   => a -> IO ()
 prettyPrint = putStrLn . pprint
 
-fairPrint :: Game -> IO ()
-fairPrint (Game actingPlayer' playerHands' _ playedCards' discardedCards' hints' fuckups' lastPlayer') =
+selectiveFairPrint :: PlayerId -> Game -> IO ()
+selectiveFairPrint player (Game actingPlayer' playerHands' deck' playedCards' discardedCards' hints' fuckups' lastPlayer') =
   putStrLn
     (intercalate
        "\n"
@@ -30,7 +30,7 @@ fairPrint (Game actingPlayer' playerHands' _ playedCards' discardedCards' hints'
            concat
              [ show i ++
              ". " ++
-             (if pId == actingPlayer'
+             (if pId == player
                 then ""
                 else pprint card) ++
              " " ++ pprint facts ++ "\n"
@@ -43,12 +43,17 @@ fairPrint (Game actingPlayer' playerHands' _ playedCards' discardedCards' hints'
        , pprint playedCards'
        , "Discarded Cards:"
        , "  " ++ pprint discardedCards'
+       , "Cards in deck:"
+       , "  " ++ show (length deck')
        , "hints: " ++ show hints'
        , "fuckups: " ++ show fuckups'
        , case lastPlayer' of
            Nothing -> ""
            Just lastPlayerId -> "\nLast Player: " ++ show lastPlayerId
        ])
+
+fairPrint :: Game -> IO ()
+fairPrint game = selectiveFairPrint (view activePlayer game) game
 
 class Pprint a where
   pprint :: a -> String
