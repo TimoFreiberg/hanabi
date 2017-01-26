@@ -77,7 +77,7 @@ instance Pprint Text where
   pprint = Text.unpack
 
 instance Pprint PlayerId where
-  pprint (PlayerId s) = "Player " ++ pprint s
+  pprint (PlayerId s) = pprint s
 
 instance Pprint a =>
          Pprint [a] where
