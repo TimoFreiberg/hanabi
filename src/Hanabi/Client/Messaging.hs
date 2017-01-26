@@ -55,22 +55,12 @@ data Response
   = ErrorResponse { explanation :: Text
                  ,  err_details :: (Maybe Text)}
   | ConnectionResponse { names :: [Text]}
-  | DiscardCardResponse { next_player :: Text
-                       ,  game_state :: GameState
-                       ,  turns_left :: Maybe Int}
-  | PlayCardResponse { next_player :: Text
-                    ,  game_state :: GameState
-                    ,  turns_left :: Maybe Int}
-  | HintColorResponse { next_player :: Text
-                     ,  game_state :: GameState
-                     ,  turns_left :: Maybe Int}
-  | HintNumberResponse { next_player :: Text
-                      ,  game_state :: GameState
-                      ,  turns_left :: Maybe Int}
+  | DiscardCardResponse { game_state :: GameState}
+  | PlayCardResponse { game_state :: GameState}
+  | HintColorResponse { game_state :: GameState}
+  | HintNumberResponse { game_state :: GameState}
   | GameOverResponse { score :: Score}
-  | GameStartResponse { next_player :: Text
-                     ,  game_state :: GameState
-                     ,  turns_left :: Maybe Int}
+  | GameStartResponse { game_state :: GameState}
   deriving (Show, Generic)
 
 instance FromJSON Response where
@@ -100,6 +90,8 @@ data GameState = GameState
   , players :: [Player]
   , deck :: Deck
   , discarded_cards :: [Card]
+  , next_player :: Text
+  , turns_left :: Maybe Int
   } deriving (Show, Generic, FromJSON, ToJSON)
 
 data Deck = Deck
@@ -183,8 +175,8 @@ capsOptions =
   defaultOptions
   {sumEncoding = UntaggedValue, constructorTagModifier = map toUpper}
 
-toHanabi :: Text -> GameState -> Maybe Int -> Hanabi.Game
-toHanabi playerId (GameState hints _ errs played playerHands currentDeck discardedCards) turnsLeft =
+toHanabi :: GameState -> Hanabi.Game
+toHanabi (GameState hints _ errs played playerHands currentDeck discardedCards playerId turnsLeft) =
   Hanabi.Game
     (Hanabi.PlayerId playerId)
     mkHands
@@ -209,12 +201,22 @@ toHanabi playerId (GameState hints _ errs played playerHands currentDeck discard
            [Hanabi.One .. (convert num)])
         m
 
-fromHanabi :: Hanabi.Game -> (Text, GameState, Maybe Int)
+fromHanabi :: Hanabi.Game -> GameState
 fromHanabi (Hanabi.Game playerId hHands hDeck hPlayed hDiscarded hHints hErrs hTurnsLeft) =
-  (mkPlayerName, mkGameState, hTurnsLeft)
+  mkGameState
   where
-    mkPlayerName = (\(Hanabi.PlayerId x) -> x) playerId
-    mkGameState = GameState hHints 8 hErrs mkPlayed mkHands mkDeck mkDiscarded
+    mkPlayerName (Hanabi.PlayerId name) = name
+    mkGameState =
+      GameState
+        hHints
+        8
+        hErrs
+        mkPlayed
+        mkHands
+        mkDeck
+        mkDiscarded
+        (mkPlayerName playerId)
+        hTurnsLeft
     mkDeck = Deck (fmap fromCard hDeck)
     mkDiscarded = fmap fromCard hDiscarded
     mkPlayed =

@@ -84,8 +84,7 @@ receiver name conn =
         ConnectionResponse names ->
           putStrLn ("current players: " ++ show names) >> loop
         resp -> do
-          let game =
-                toHanabi (next_player resp) (game_state resp) (turns_left resp)
+          let game = toHanabi (game_state resp)
           modifyIORef' games (game :)
           Print.selectiveFairPrint (Hanabi.PlayerId name) game
           loop
