@@ -17,7 +17,7 @@ prettyPrint
 prettyPrint = putStrLn . pprint
 
 selectiveFairPrint :: PlayerId -> Game -> IO ()
-selectiveFairPrint player (Game actingPlayer' playerHands' deck' playedCards' discardedCards' hints' fuckups' lastPlayer') =
+selectiveFairPrint player (Game actingPlayer' playerHands' deck' playedCards' discardedCards' hints' fuckups' turnsLeft') =
   putStrLn
     (intercalate
        "\n"
@@ -47,9 +47,7 @@ selectiveFairPrint player (Game actingPlayer' playerHands' deck' playedCards' di
        , "  " ++ show (length deck')
        , "hints: " ++ show hints'
        , "fuckups: " ++ show fuckups'
-       , case lastPlayer' of
-           Nothing -> ""
-           Just lastPlayerId -> "\nLast Player: " ++ show lastPlayerId
+       , maybe "" (("\nTurns left: " ++) . show) turnsLeft'
        ])
 
 fairPrint :: Game -> IO ()
