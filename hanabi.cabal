@@ -35,6 +35,8 @@ library
                      , unordered-containers 
                      , websockets
                      , async
+                     , directory
+                     , escape-artist
   default-language:    Haskell2010
 
 executable hanabi-exe

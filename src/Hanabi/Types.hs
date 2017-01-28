@@ -59,6 +59,9 @@ newtype PlayerId =
            , FromJSONKey
            )
 
+unPlayerId :: PlayerId -> Text
+unPlayerId (PlayerId x) = x
+
 type Hand = [(Card, Set Fact)]
 
 data Fact
