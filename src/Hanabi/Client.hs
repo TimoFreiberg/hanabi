@@ -66,10 +66,6 @@ playerName = unsafePerformIO $ newIORef (Text.empty)
 endGame :: MVar ()
 endGame = unsafePerformIO $ newEmptyMVar
 
-{-# NOINLINE games #-}
-games :: MVar [Hanabi.Game]
-games = unsafePerformIO $ newMVar []
-
 send conn x = do
   let msg = encode x
   Logger.logInfoN ("Sending JSON:\n" <> convertString (encodePretty x))
@@ -152,11 +148,12 @@ guardLog msg False = Logger.logDebugN msg >> GHC.Base.empty
 
 client :: Text -> WS.Connection -> LoggingT IO ()
 client myName conn = do
-  receiveThread <- liftIO (async (receiver myName conn))
+  gameStore <- liftIO (newMVar [])
+  receiveThread <- liftIO (async (receiver myName gameStore conn))
   send conn (ConnectionRequest myName)
   let myId = Hanabi.PlayerId myName
   let inputHandler = do
-        games <- liftIO (readMVar games)
+        games <- liftIO (readMVar gameStore)
         let game =
               case take 1 games of
                 [x] -> x
@@ -238,8 +235,7 @@ putLn out = do
   Logger.logDebugN ("Print output (" <> out <> ")")
   liftIO (IO.putStrLn out)
 
-receiver :: Text -> WS.Connection -> IO ()
-receiver myName conn =
+receiver myName gameStore conn =
   receive conn >>= \case
     Right response ->
       case response of
@@ -251,12 +247,12 @@ receiver myName conn =
           putStrLn ("current players: " ++ show playerNames) >> loop
         resp -> do
           let game = toHanabi (game_state resp)
-          modifyMVar_ games (return . (game :))
+          modifyMVar_ gameStore (return . (game :))
           Print.selectiveFairPrint (Hanabi.PlayerId myName) game
           loop
     Left parseError -> print parseError >> loop
   where
-    loop = receiver myName conn
+    loop = receiver myName gameStore conn
 
 getCardAt :: Hanabi.Game -> Hanabi.PlayerId -> Int -> Card
 getCardAt g n i = fromCard (fst ((myHand g n) !! i))
