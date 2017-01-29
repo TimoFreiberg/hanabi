@@ -216,11 +216,13 @@ fromHanabi (Hanabi.Game playerId hHands hDeck hPlayed hDiscarded hHints hErrs hT
     mkDiscarded = fmap fromCard hDiscarded
     mkPlayed =
       foldr
-        (\(col, cs) m -> Map.insert (convert col) (getNum (head cs)) m)
+        (\(col, cs) m -> Map.insert (convert col) (getNum (myHead cs)) m)
         Map.empty
         (filter (not . null . snd) (Map.assocs hPlayed))
     getNum (Hanabi.Card _ _ n) = convert n
     mkHands = fmap fromHand (Map.assocs hHands)
+    myHead (x:_) = x
+    myHead [] = error "failed at converting played cards"
 
 fromCard :: Hanabi.Card -> Card
 fromCard (Hanabi.Card cardId col num) = Card cardId (convert col) (convert num)

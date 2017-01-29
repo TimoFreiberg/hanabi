@@ -3,6 +3,9 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 module Hanabi.Types where
 
@@ -14,6 +17,7 @@ import Data.List (isPrefixOf)
 import Data.Map.Strict (Map)
 import Data.Set (Set)
 import Data.String (IsString)
+import Data.String.Conversions (convertString, ConvertibleStrings)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import GHC.Generics
@@ -58,6 +62,18 @@ newtype PlayerId =
            , ToJSONKey
            , FromJSONKey
            )
+
+instance ConvertibleStrings PlayerId String where
+  convertString = show
+
+instance ConvertibleStrings String PlayerId where
+  convertString = PlayerId . convertString
+
+instance ConvertibleStrings PlayerId Text where
+  convertString = unPlayerId
+
+instance ConvertibleStrings Text PlayerId where
+  convertString = PlayerId
 
 unPlayerId :: PlayerId -> Text
 unPlayerId (PlayerId x) = x
