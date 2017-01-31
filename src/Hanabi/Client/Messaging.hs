@@ -14,6 +14,7 @@ import Data.Aeson.Types
         sumEncoding)
 import qualified Data.Aeson.Types as Aeson
 import Data.Char (toUpper, toLower)
+import qualified Data.List.NonEmpty as List
 import qualified Data.Map.Strict as Map
 import Data.Map.Strict (Map)
 import qualified Data.Set as Set
@@ -192,9 +193,9 @@ toHanabi (GameState hints _ errs played playerHands currentDeck discardedCards p
     mkColorStack (col, num) m =
       Map.insert
         (convert col)
-        (map
+        (fmap
            (\n -> Hanabi.Card (-1) (convert col) n)
-           [Hanabi.One .. (convert num)])
+           (List.fromList [Hanabi.One .. (convert num)]))
         m
 
 fromHanabi :: Hanabi.Game -> GameState
@@ -216,13 +217,11 @@ fromHanabi (Hanabi.Game playerId hHands hDeck hPlayed hDiscarded hHints hErrs hT
     mkDiscarded = fmap fromCard hDiscarded
     mkPlayed =
       foldr
-        (\(col, cs) m -> Map.insert (convert col) (getNum (myHead cs)) m)
+        (\(col, cs) m -> Map.insert (convert col) (getNum (List.head cs)) m)
         Map.empty
-        (filter (not . null . snd) (Map.assocs hPlayed))
+        (Map.assocs hPlayed)
     getNum (Hanabi.Card _ _ n) = convert n
     mkHands = fmap fromHand (Map.assocs hHands)
-    myHead (x:_) = x
-    myHead [] = error "failed at converting played cards"
 
 fromCard :: Hanabi.Card -> Card
 fromCard (Hanabi.Card cardId col num) = Card cardId (convert col) (convert num)

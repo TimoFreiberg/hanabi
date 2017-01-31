@@ -14,6 +14,7 @@ import Data.Aeson (ToJSON, FromJSON, ToJSONKey, FromJSONKey)
 import qualified Data.Aeson as Aeson
 import qualified Data.Aeson.Types as Aeson
 import Data.List (isPrefixOf)
+import Data.List.NonEmpty (NonEmpty)
 import Data.Map.Strict (Map)
 import Data.Set (Set)
 import Data.String (IsString)
@@ -90,7 +91,7 @@ data Game = Game
   { _activePlayer :: PlayerId
   , _playerHands :: Map PlayerId Hand
   , _deck :: [Card]
-  , _playedCards :: Map Color [Card]
+  , _playedCards :: Map Color (NonEmpty Card)
   , _discardedCards :: [Card]
   , _hints :: Int
   , _fuckups :: Int

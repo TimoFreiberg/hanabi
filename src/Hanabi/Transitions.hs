@@ -1,3 +1,5 @@
+{-# LANGUAGE ViewPatterns #-}
+
 module Hanabi.Transitions where
 
 import Hanabi
@@ -26,15 +28,15 @@ hintGiven hint playerId =
   endTurn . decrementHintCount . giveHint (toHint hint) playerId
 
 endTurn :: Game -> Either GameOver Game
-endTurn game
+endTurn (checkLastRound -> game)
   | any ($ game) [lastRoundFinished, tooManyFailures, allStacksFilled] =
     Left (gameOver game)
-  | otherwise = (Right . nextPlayer . checkLastRound) game
-  where
-    checkLastRound =
-      if deckEmpty game
-        then startLastRound
-        else id
+  | otherwise = (Right . nextPlayer) game
+
+checkLastRound :: Game -> Game
+checkLastRound game
+  | deckEmpty game = startLastRound game
+  | otherwise = game
 
 gameOver :: Game -> GameOver
 gameOver game = GameOver (getScore game)

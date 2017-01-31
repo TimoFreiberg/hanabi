@@ -15,7 +15,7 @@ import Control.Concurrent.MVar
 import Control.Exception (catch, SomeException)
 import Control.Lens (view, at, to, non)
 import Control.Monad (guard, when, (>=>))
-import Control.Monad.IO.Class (liftIO)
+import Control.Monad.IO.Class (liftIO, MonadIO)
 import qualified Control.Monad.Logger as Logger
 import Control.Monad.Logger (LoggingT)
 import Control.Monad.Trans.Class (lift)
@@ -26,6 +26,7 @@ import qualified Data.ByteString.Lazy.Char8 as ByteString
 import Data.Foldable (asum)
 import Data.IORef
        (IORef, newIORef, readIORef, writeIORef, modifyIORef')
+import qualified Data.List.NonEmpty as List
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
@@ -42,8 +43,9 @@ import qualified Text.EscapeArtist as IO
 import Text.Read (readMaybe)
 
 import qualified Hanabi
+import Hanabi.Client.Cli
 import Hanabi.Client.Messaging
-import Hanabi.Print as Print
+import qualified Hanabi.Print as Print
 
 port :: Int
 port = 4444
@@ -54,28 +56,15 @@ host = "localhost"
 path :: String
 path = "/"
 
-{-# NOINLINE connRef #-}
-connRef :: MVar WS.Connection
-connRef = unsafePerformIO $ newEmptyMVar
-
-{-# NOINLINE playerName #-}
-playerName :: IORef Text
-playerName = unsafePerformIO $ newIORef (Text.empty)
-
-{-# NOINLINE endGame #-}
-endGame :: MVar ()
-endGame = unsafePerformIO $ newEmptyMVar
-
 send conn x = do
   let msg = encode x
   Logger.logInfoN ("Sending JSON:\n" <> convertString (encodePretty x))
   liftIO (WS.sendTextData conn msg)
 
-receive :: WS.Connection -> IO (Either String Response)
+receive :: WS.Connection -> LoggingT IO (Either String Response)
 receive c = do
-  resp <- WS.receiveData c
-  ByteString.putStrLn "received:"
-  ByteString.putStrLn resp
+  resp <- liftIO (WS.receiveData c)
+  Logger.logDebugN ("received:\n" <> convertString resp)
   return (eitherDecode resp)
 
 startClient = do
@@ -99,7 +88,7 @@ startClient = do
             (convertString host)
             port
             "/"
-            (Logger.runChanLoggingT logChan . client name))
+            (Logger.runChanLoggingT logChan . client logChan name))
        Logger.logDebugN "Client stopped.")
 
 getConfig = do
@@ -146,33 +135,40 @@ readConfig = do
 guardLog _ True = pure ()
 guardLog msg False = Logger.logDebugN msg >> GHC.Base.empty
 
-client :: Text -> WS.Connection -> LoggingT IO ()
-client myName conn = do
-  gameStore <- liftIO (newMVar [])
-  receiveThread <- liftIO (async (receiver myName gameStore conn))
+client logChan myName conn = do
+  gameStore <- liftIO newEmptyMVar
+  gameEnded <- liftIO (newEmptyMVar @())
+  receiveThread <-
+    liftIO
+      (async
+         (Logger.runChanLoggingT
+            logChan
+            (receiver myName gameStore gameEnded conn)))
   send conn (ConnectionRequest myName)
   let myId = Hanabi.PlayerId myName
   let inputHandler = do
-        games <- liftIO (readMVar gameStore)
-        let game =
-              case take 1 games of
-                [x] -> x
-                [] -> error "no game stored"
-        input <- getLn
-        case Text.toLower input of
-          "start" -> send conn GameStartRequest
-          (checkPlay game myId -> Just playWhat) -> do
-            (send conn (PlayCardRequest (getCardAt game myId playWhat)))
-          (checkDiscard game myId -> Just discardWhat) -> do
-            (send conn (DiscardCardRequest (getCardAt game myId discardWhat)))
-          (checkHint game myId >=> checkColor -> Just (hintWhom, hintColor)) -> do
-            send conn (HintColorRequest hintWhom hintColor)
-          (checkHint game myId >=> checkNumber -> Just (hintWhom, hintNumber)) -> do
-            send conn (HintNumberRequest hintWhom hintNumber)
-          rest -> putLn "couldn't read input"
+        input <- Text.toLower <$> getLn
+        if (input == "start")
+          -- FIXME: dirty hack.
+          -- necessary because no games are stored before the game is started
+          then (send conn GameStartRequest)
+          else do
+            game <- liftIO (List.head <$> readMVar gameStore)
+            case input of
+              (checkPlay game myId -> Just playWhat) -> do
+                (send conn (PlayCardRequest (getCardAt game myId playWhat)))
+              (checkDiscard game myId -> Just discardWhat) -> do
+                (send
+                   conn
+                   (DiscardCardRequest (getCardAt game myId discardWhat)))
+              (checkHint game myId >=> extractColorHint -> Just (hintWhom, hintColor)) -> do
+                send conn (HintColorRequest hintWhom hintColor)
+              (checkHint game myId >=> extractNumberHint -> Just (hintWhom, hintNumber)) -> do
+                send conn (HintNumberRequest hintWhom hintNumber)
+              _ -> putLn "couldn't read input"
   let loop = do
         inputHandler
-        liftIO (tryTakeMVar endGame) >>= \case
+        liftIO (tryTakeMVar gameEnded) >>= \case
           Nothing -> loop
           Just _ -> return ()
   loop
@@ -200,14 +196,6 @@ checkHint game name input = do
      (view (Hanabi.playerHands . to Map.keys) game))
   return (hintWhom, hintWhat)
 
-checkColor (x, colString) = do
-  col <- decode (convertString (Text.toUpper colString))
-  return (x, col)
-
-checkNumber (x, numString) = do
-  num <- decode (convertString (Text.toUpper numString))
-  return (x, num)
-
 checkCardIndex :: Hanabi.Game -> Hanabi.PlayerId -> Int -> Maybe Int
 checkCardIndex game name i
   | i >= 0 && i < handSize = Just i
@@ -215,11 +203,10 @@ checkCardIndex game name i
   where
     handSize = length (myHand game name)
 
-getLn :: LoggingT IO Text
-getLn = do
-  input <- liftIO IO.getLine
-  Logger.logDebugN ("Read input (" <> input <> ")")
-  return input
+getLn
+  :: MonadIO m
+  => m Text
+getLn = liftIO IO.getLine
 
 readT
   :: (ConvertibleStrings a String, Read b)
@@ -231,28 +218,35 @@ showT
   => a -> b
 showT = convertString . show
 
-putLn out = do
-  Logger.logDebugN ("Print output (" <> out <> ")")
-  liftIO (IO.putStrLn out)
+putLn
+  :: (MonadIO m)
+  => Text -> m ()
+putLn = liftIO . IO.putStrLn . convertString
 
-receiver myName gameStore conn =
+receiver myName gameStore gameEnded conn =
   receive conn >>= \case
     Right response ->
       case response of
-        GameOverResponse finalScore ->
-          putMVar endGame () >>
-          putStrLn ("game over - score: " ++ show finalScore)
-        ErrorResponse expl details -> print details >> print expl >> loop
-        ConnectionResponse playerNames ->
-          putStrLn ("current players: " ++ show playerNames) >> loop
+        GameOverResponse finalScore -> do
+          liftIO (putMVar gameEnded ())
+          putLn ("game over - score: " <> showT finalScore)
+        ErrorResponse expl details -> do
+          Logger.logWarnN
+            ("received error message:\n" <> fromMaybe "" details <> "\n" <> expl)
+          loop
+        ConnectionResponse playerNames -> do
+          putLn ("current players: " <> Text.intercalate ", " playerNames) --FIXME
+          loop
         resp -> do
           let game = toHanabi (game_state resp)
-          modifyMVar_ gameStore (return . (game :))
+          liftIO
+            (tryTakeMVar gameStore >>=
+             (putMVar gameStore . (maybe (game List.:| [])) (game List.<|)))
           Print.selectiveFairPrint (Hanabi.PlayerId myName) game
           loop
-    Left parseError -> print parseError >> loop
+    Left parseError -> Logger.logWarnN (convertString parseError) >> loop
   where
-    loop = receiver myName gameStore conn
+    loop = receiver myName gameStore gameEnded conn
 
 getCardAt :: Hanabi.Game -> Hanabi.PlayerId -> Int -> Card
 getCardAt g n i = fromCard (fst ((myHand g n) !! i))

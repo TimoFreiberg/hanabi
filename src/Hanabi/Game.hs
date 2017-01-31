@@ -9,6 +9,7 @@ import Control.Lens
 import Control.Arrow ((>>>))
 import Data.Function (on)
 import qualified Data.List as List (delete, deleteBy)
+import qualified Data.List.NonEmpty as List
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Set (Set)
@@ -138,7 +139,7 @@ allStacksFilled game =
     stacks = view (playedCards . to Map.elems) game
 
 getStack :: Color -> Game -> [Card]
-getStack col = view (playedCards . ix col)
+getStack col = view (playedCards . ix col . to List.toList)
 
 removeFromHand :: Card -> Game -> Game
 removeFromHand card =
@@ -146,7 +147,9 @@ removeFromHand card =
 
 putOnPlayedStack :: Card -> Game -> Game
 putOnPlayedStack card =
-  over (playedCards . at (view color card) . non []) (card :)
+  over
+    (playedCards . at (view color card))
+    (Just . maybe (List.fromList [card]) (card List.<|))
 
 putOnDiscardedStack :: Card -> Game -> Game
 putOnDiscardedStack card = over discardedCards (card :)
@@ -226,11 +229,7 @@ lastRoundFinished game = maybe False (0 ==) (view turnsLeft game)
 
 getScore :: Game -> Int
 getScore =
-  sum .
-  view
-    (playedCards .
-     to (fmap (take 1)) .
-     traversed . to (fmap (view number)) . to (fmap numToInt))
+  sum . view (playedCards . to (fmap (numToInt . view number . List.head)))
 
 numToInt :: Number -> Int
 numToInt One = 1
