@@ -24,6 +24,8 @@ library
                      , Hanabi.Client
                      , Hanabi.Client.Messaging
                      , Hanabi.Client.Cli
+                     , Hanabi.Logging
+                     , Hanabi.Client.Config
   build-depends:       base >= 4.7 && < 5
                      , aeson
                      , aeson-pretty
