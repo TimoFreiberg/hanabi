@@ -91,23 +91,6 @@ differentType = (/=) `on` isNumberFact
 isColorFact :: Fact -> Bool
 isColorFact = not . isNumberFact
 
--- propNNumbers :: Int -> Number -> Color -> Bool
--- propNNumbers n num col = length ones == n
---   where
---     ones =
---         filter
---             (\(Card c n) ->
---                   c == col && n == num)
---             sortedGame
--- spec :: IO ()
--- spec =
---     hspec $
---     describe "the sorted game" $
---     do it "has three ones" $ property $ propNNumbers 3 One
---        it "has two twos" $ property $ propNNumbers 2 Two
---        it "has two threes" $ property $ propNNumbers 2 Three
---        it "has two fours" $ property $ propNNumbers 2 Four
---        it "has one five" $ property $ propNNumbers 1 Five
 initState :: PlayerId -> [PlayerId] -> IO Game
 initState startId ids = do
   (cards, dk) <- dealCards (length cleanIds)
