@@ -9,13 +9,11 @@ module Hanabi.Client
   ) where
 
 import Control.Concurrent.Async (async, cancel)
-import qualified Control.Concurrent.Chan as Chan
 import Control.Concurrent.MVar
        (MVar, newEmptyMVar, putMVar, tryTakeMVar, readMVar)
 import Control.Lens (view, at, to, non)
 import Control.Monad (guard, (>=>))
 import Control.Monad.IO.Class (liftIO, MonadIO)
-import qualified Control.Monad.Logger as Logger
 import Control.Monad.Logger (LoggingT, MonadLogger)
 import Control.Monad.Trans.Class (lift)
 import Data.Aeson (encode, eitherDecode, ToJSON)
@@ -36,7 +34,8 @@ import qualified Hanabi.Client.Cli as Cli
 import Hanabi.Client.Config (getConfig)
 import qualified Hanabi.Client.Messaging as Msg
 import Hanabi.Logging
-       (startLogging, stopLogging, logToStderr, logExceptions)
+       (startLogging, stopLogging, logToStderr, logExceptions,
+        withLogging, Logger, logInfo, logDebug, logWarn)
 import qualified Hanabi.Print as Print
 
 send
@@ -44,13 +43,13 @@ send
   => WS.Connection -> a -> m ()
 send conn x = do
   let msg = encode x
-  Logger.logInfoN ("Sending JSON:\n" <> convertString (encodePretty x))
+  logInfo ("Sending JSON:\n" <> convertString (encodePretty x))
   liftIO (WS.sendTextData conn msg)
 
 receive :: WS.Connection -> LoggingT IO (Either String Msg.Response)
 receive c = do
   resp <- liftIO (WS.receiveData c)
-  Logger.logDebugN ("Received JSON:\n" <> convertString resp)
+  logDebug ("Received JSON:\n" <> convertString resp)
   return (eitherDecode resp)
 
 startClient :: IO ()
@@ -58,37 +57,30 @@ startClient = do
   Handle.hSetBuffering Handle.stdin Handle.LineBuffering
   Handle.hSetBuffering Handle.stdout Handle.LineBuffering
   Handle.hSetBuffering Handle.stderr Handle.LineBuffering
-  logChan <- startLogging logToStderr
+  logger <- startLogging logToStderr
   logExceptions
-    logChan
-    (Logger.runChanLoggingT logChan $ do
-       Logger.logDebugN "Starting client."
+    logger
+    (withLogging logger $ do
+       logDebug "Starting client."
        (host, port) <- getConfig
        name <- Cli.ask "Enter name:"
-       Logger.logDebugN ("Set name (" <> name <> ")")
+       logDebug ("Set name (" <> name <> ")")
        lift
          (WS.runClient
             (convertString host)
             port
             "/"
-            (Logger.runChanLoggingT logChan . client logChan name))
-       Logger.logDebugN "Client stopped.")
-  stopLogging
+            (withLogging logger . client logger name))
+       logDebug "Client stopped.")
+  stopLogging logger
 
-client
-  :: Chan.Chan (Logger.Loc, Logger.LogSource, Logger.LogLevel, Logger.LogStr)
-  -> Text
-  -> WS.Connection
-  -> LoggingT IO ()
-client logChan myName conn = do
+client :: Logger -> Text -> WS.Connection -> LoggingT IO ()
+client logger myName conn = do
   gameStore <- liftIO newEmptyMVar
   gameEnded <- liftIO (newEmptyMVar @())
   receiveThread <-
     liftIO
-      (async
-         (Logger.runChanLoggingT
-            logChan
-            (receiver myName gameStore gameEnded conn)))
+      (async (withLogging logger (receiver myName gameStore gameEnded conn)))
   send conn (Msg.ConnectionRequest myName)
   let myId = Hanabi.PlayerId myName
   let inputHandler = do
@@ -177,7 +169,7 @@ receiver myName gameStore gameEnded conn =
           liftIO (putMVar gameEnded ())
           Cli.putLn ("game over - score: " <> showT finalScore)
         Msg.ErrorResponse expl details -> do
-          Logger.logWarnN
+          logWarn
             ("received error message:\n" <> fromMaybe "" details <> "\n" <> expl)
           loop
         Msg.ConnectionResponse playerNames -> do
@@ -190,7 +182,7 @@ receiver myName gameStore gameEnded conn =
              (putMVar gameStore . (maybe (game List.:| [])) (game List.<|)))
           Print.selectiveFairPrint (Hanabi.PlayerId myName) game
           loop
-    Left parseError -> Logger.logWarnN (convertString parseError) >> loop
+    Left parseError -> logWarn (convertString parseError) >> loop
   where
     loop = receiver myName gameStore gameEnded conn
 
