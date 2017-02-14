@@ -29,12 +29,12 @@ import qualified Hanabi.Game as Hanabi
 
 data Request
   = ConnectionRequest { name :: Text}
-  | DiscardCardRequest { discarded_card :: Card}
+  | DiscardCardRequest { discarded_card_id :: Int}
   | HintColorRequest { target_player :: Text
                     ,  color :: Color}
   | HintNumberRequest { target_player :: Text
                      ,  number :: Number}
-  | PlayCardRequest { played_card :: Card}
+  | PlayCardRequest { played_card_id :: Int}
   | GameStartRequest
   deriving (Show, Generic)
 
@@ -84,14 +84,10 @@ data GameState = GameState
   , err_tokens :: Int
   , played_cards :: Map Color Number
   , players :: [Player]
-  , deck :: Deck
+  , deck :: [Card]
   , discarded_cards :: [Card]
   , next_player :: Text
   , turns_left :: Maybe Int
-  } deriving (Show, Generic, FromJSON, ToJSON)
-
-data Deck = Deck
-  { cards :: [Card]
   } deriving (Show, Generic, FromJSON, ToJSON)
 
 data Player = Player
@@ -184,8 +180,8 @@ toHanabi (GameState hints _ errs played playerHands currentDeck discardedCards p
     errs
     turnsLeft
   where
-    mkDeck = (\(Deck cs) -> map toCard cs) currentDeck
-    mkDiscarded = map toCard discardedCards
+    mkDeck = fmap toCard currentDeck
+    mkDiscarded = fmap toCard discardedCards
     mkHands = foldr insertHand Map.empty playerHands
     insertHand (Player playerName cs) m =
       Map.insert (Hanabi.PlayerId playerName) (map toHand cs) m
@@ -213,7 +209,7 @@ fromHanabi (Hanabi.Game playerId hHands hDeck hPlayed hDiscarded hHints hErrs hT
         mkDiscarded
         (Hanabi.unPlayerId playerId)
         hTurnsLeft
-    mkDeck = Deck (fmap fromCard hDeck)
+    mkDeck = fmap fromCard hDeck
     mkDiscarded = fmap fromCard hDiscarded
     mkPlayed =
       foldr

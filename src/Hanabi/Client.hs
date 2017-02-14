@@ -101,11 +101,13 @@ client logChan myName conn = do
             game <- liftIO (List.head <$> readMVar gameStore)
             case input of
               (checkPlay game myId -> Just playWhat) -> do
-                (send conn (Msg.PlayCardRequest (getCardAt game myId playWhat)))
+                (send
+                   conn
+                   (Msg.PlayCardRequest (getCardIdAt game myId playWhat)))
               (checkDiscard game myId -> Just discardWhat) -> do
                 (send
                    conn
-                   (Msg.DiscardCardRequest (getCardAt game myId discardWhat)))
+                   (Msg.DiscardCardRequest (getCardIdAt game myId discardWhat)))
               (checkHint game myId >=> Cli.extractColorHint -> Just (hintWhom, hintColor)) -> do
                 send conn (Msg.HintColorRequest hintWhom hintColor)
               (checkHint game myId >=> Cli.extractNumberHint -> Just (hintWhom, hintNumber)) -> do
@@ -192,8 +194,8 @@ receiver myName gameStore gameEnded conn =
   where
     loop = receiver myName gameStore gameEnded conn
 
-getCardAt :: Hanabi.Game -> Hanabi.PlayerId -> Int -> Msg.Card
-getCardAt g n i = Msg.fromCard (fst ((myHand g n) !! i))
+getCardIdAt :: Hanabi.Game -> Hanabi.PlayerId -> Int -> Int
+getCardIdAt g n i = view (Hanabi.cardId) (fst ((myHand g n) !! i))
 
 myHand :: Hanabi.Game -> Hanabi.PlayerId -> Hanabi.Hand
 myHand game name = view (Hanabi.playerHands . at name . non []) game
