@@ -34,8 +34,8 @@ import qualified Hanabi.Client.Cli as Cli
 import Hanabi.Client.Config (getConfig)
 import qualified Hanabi.Client.Messaging as Msg
 import Hanabi.Logging
-       (startLogging, stopLogging, logToStderr, logExceptions,
-        withLogging, Logger, logInfo, logDebug, logWarn)
+       (startLogging, withLogging, logToStderr, Logger, logInfo, logDebug,
+        logWarn)
 import qualified Hanabi.Print as Print
 
 send
@@ -57,22 +57,18 @@ startClient = do
   Handle.hSetBuffering Handle.stdin Handle.LineBuffering
   Handle.hSetBuffering Handle.stdout Handle.LineBuffering
   Handle.hSetBuffering Handle.stderr Handle.LineBuffering
-  logger <- startLogging logToStderr
-  logExceptions
-    logger
-    (withLogging logger $ do
-       logDebug "Starting client."
-       (host, port) <- getConfig
-       name <- Cli.ask "Enter name:"
-       logDebug ("Set name (" <> name <> ")")
-       lift
-         (WS.runClient
-            (convertString host)
-            port
-            "/"
-            (withLogging logger . client logger name))
-       logDebug "Client stopped.")
-  stopLogging logger
+  startLogging logToStderr $ \logger -> do
+    logDebug "Starting client."
+    (host, port) <- getConfig
+    name <- Cli.ask "Enter name:"
+    logDebug ("Set name (" <> name <> ")")
+    lift
+      (WS.runClient
+         (convertString host)
+         port
+         "/"
+         (withLogging logger . client logger name))
+    logDebug "Client stopped."
 
 client :: Logger -> Text -> WS.Connection -> LoggingT IO ()
 client logger myName conn = do

@@ -3,10 +3,8 @@
 
 module Hanabi.Logging
   ( startLogging
-  , stopLogging
   , logToStderr
   , logToFile
-  , logExceptions
   , logDebug
   , logInfo
   , logWarn
@@ -26,11 +24,14 @@ import Data.Text (Text)
 
 startLogging
   :: MonadIO m
-  => LogFunction -> m Logger
-startLogging logFun = do
+  => LogFunction -> (Logger -> LoggingT IO ()) -> m ()
+startLogging logFun action = do
   chan <- liftIO Chan.newChan
   logThread <- liftIO (async (runLogFun logFun (Logging.unChanLoggingT chan)))
-  return (Logger logThread chan)
+  let logger = (Logger logThread chan)
+  result <- logExceptions logger (withLogging logger ((action logger)))
+  liftIO (cancel logThread)
+  return result
 
 logDebug
   :: (MonadLogger m, MonadIO m)
@@ -51,11 +52,6 @@ withLogging
   :: MonadIO m
   => Logger -> LoggingT m a -> m a
 withLogging (Logger _ chan) = Logging.runChanLoggingT chan
-
-stopLogging
-  :: MonadIO m
-  => Logger -> m ()
-stopLogging (Logger logThread _) = liftIO (cancel logThread)
 
 data Logger =
   Logger (Async (LoggingT IO ()))
@@ -80,7 +76,11 @@ runLogFun ToStderr = Logging.runStderrLoggingT
 runLogFun (ToFile path) =
   error ("logging to file (" ++ path ++ ") not implemented yet")
 
-logExceptions :: Logger -> IO () -> IO ()
+logExceptions
+  :: MonadIO m
+  => Logger -> IO () -> m ()
 logExceptions logger action =
-  action `catch`
-  (withLogging logger . Logging.logErrorN . convertString . show @SomeException)
+  liftIO
+    (action `catch`
+     (withLogging logger .
+      Logging.logErrorN . convertString . show @SomeException))
