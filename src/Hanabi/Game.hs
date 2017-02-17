@@ -221,9 +221,6 @@ numToInt Three = 3
 numToInt Four = 4
 numToInt Five = 5
 
-exampleGame :: IO Game
-exampleGame = initState "1" ["2", "3"]
-
 cardAt :: Int -> Game -> Card
 cardAt i = view (activeHand . to (fmap fst >>> (!! i)))
 

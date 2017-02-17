@@ -27,7 +27,6 @@ import qualified Data.Text as Text
 import Data.Text (Text)
 import qualified Network.WebSockets as WS
 import qualified System.IO as Handle
-import Text.Read (readMaybe)
 
 import qualified Hanabi
 import qualified Hanabi.Client.Cli as Cli
@@ -81,26 +80,10 @@ client logger myName conn = do
   let myId = Hanabi.PlayerId myName
   let inputHandler = do
         input <- Text.toLower <$> Cli.getLn
-        if (input == "start")
-          -- FIXME: dirty hack.
-          -- necessary because no games are stored before the game is started
-          then (send conn Msg.GameStartRequest)
-          else do
-            game <- liftIO (List.head <$> readMVar gameStore)
-            case input of
-              (checkPlay game myId -> Just playWhat) -> do
-                (send
-                   conn
-                   (Msg.PlayCardRequest (getCardIdAt game myId playWhat)))
-              (checkDiscard game myId -> Just discardWhat) -> do
-                (send
-                   conn
-                   (Msg.DiscardCardRequest (getCardIdAt game myId discardWhat)))
-              (checkHint game myId >=> Cli.extractColorHint -> Just (hintWhom, hintColor)) -> do
-                send conn (Msg.HintColorRequest hintWhom hintColor)
-              (checkHint game myId >=> Cli.extractNumberHint -> Just (hintWhom, hintNumber)) -> do
-                send conn (Msg.HintNumberRequest hintWhom hintNumber)
-              _ -> Cli.putLn "couldn't read input"
+        response <- Cli.handleInput gameStore myId input
+        case response of
+          SendRequest r -> send conn r
+          InputErr e -> putLn e
   let loop = do
         inputHandler
         liftIO (tryTakeMVar gameEnded) >>= \case
@@ -108,48 +91,6 @@ client logger myName conn = do
           Just _ -> return ()
   loop
   liftIO (cancel receiveThread)
-
-checkDiscard :: Hanabi.Game -> Hanabi.PlayerId -> Text -> Maybe Int
-checkDiscard game name input = do
-  discardWhat <- Text.stripPrefix "discard" input
-  i <- readT discardWhat
-  checkCardIndex game name i
-
-checkPlay :: Hanabi.Game -> Hanabi.PlayerId -> Text -> Maybe Int
-checkPlay game name input = do
-  playWhat <- Text.stripPrefix "play" input
-  i <- readT playWhat
-  checkCardIndex game name i
-
-checkHint :: Hanabi.Game -> Hanabi.PlayerId -> Text -> Maybe (Text, Text)
-checkHint game name input = do
-  params <- Text.stripPrefix "hint" input
-  let tokens = Text.words params
-  guard (length tokens >= 2)
-  let hintWhom = Text.concat (init tokens)
-  let hintWhat = last tokens
-  guard (hintWhom /= (convertString name))
-  guard
-    ((Hanabi.PlayerId hintWhom) `elem`
-     (view (Hanabi.playerHands . to Map.keys) game))
-  return (hintWhom, hintWhat)
-
-checkCardIndex :: Hanabi.Game -> Hanabi.PlayerId -> Int -> Maybe Int
-checkCardIndex game name i
-  | i >= 0 && i < handSize = Just i
-  | otherwise = Nothing
-  where
-    handSize = length (myHand game name)
-
-readT
-  :: (ConvertibleStrings a String, Read b)
-  => a -> Maybe b
-readT = readMaybe . convertString
-
-showT
-  :: (Show a, ConvertibleStrings String b)
-  => a -> b
-showT = convertString . show
 
 receiver
   :: Text
@@ -181,9 +122,3 @@ receiver myName gameStore gameEnded conn =
     Left parseError -> logWarn (convertString parseError) >> loop
   where
     loop = receiver myName gameStore gameEnded conn
-
-getCardIdAt :: Hanabi.Game -> Hanabi.PlayerId -> Int -> Int
-getCardIdAt g n i = view (Hanabi.cardId) (fst ((myHand g n) !! i))
-
-myHand :: Hanabi.Game -> Hanabi.PlayerId -> Hanabi.Hand
-myHand game name = view (Hanabi.playerHands . at name . non []) game
