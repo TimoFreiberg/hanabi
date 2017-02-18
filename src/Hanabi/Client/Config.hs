@@ -1,7 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 
-module Hanabi.Client.Config where
+module Hanabi.Client.Config
+  ( getConfig
+  ) where
 
 import Control.Applicative (empty, Alternative)
 import Control.Monad.IO.Class (liftIO)
