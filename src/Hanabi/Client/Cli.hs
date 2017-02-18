@@ -6,7 +6,7 @@
 
 module Hanabi.Client.Cli where
 
-import Control.Concurrent.MVar (tryReadMVar)
+import Control.Concurrent.MVar (tryReadMVar, MVar)
 import Control.Lens (view, at, non, to)
 import Control.Monad ((>=>), guard)
 import Control.Monad.IO.Class (MonadIO, liftIO)
@@ -26,35 +26,61 @@ import Hanabi.Client.Messaging
 data InputReaction
   = SendRequest Request
   | InputErr Text
+  deriving (Show)
 
+type Parsed a = Either Text a
+
+dispatchInput :: Parsed Request -> InputReaction
+dispatchInput = either InputErr SendRequest
+
+inputHandler :: (MVar (NonEmpty Hanabi.Game))
+             -> Hanabi.PlayerId
+             -> Text
+             -> IO InputReaction
 inputHandler gameStore playerName input =
   case input of
-    "start" -> SendRequest GameStartRequest
-    (isCommand input -> Just command) -> do
+    "start" -> return (SendRequest GameStartRequest)
+    (isCommand -> Just command) -> do
       games <- tryReadMVar gameStore
-      return $
-        case games of
-          Nothing -> InputErr "Game has not started yet"
-          Just (game :| _) ->
-            case input of
-              (checkPlay game playerName -> Just playWhat) -> do
-                (SendRequest
-                   (PlayCardRequest (getCardIdAt game playerName playWhat)))
-              (checkDiscard game playerName -> Just discardWhat) -> do
-                (SendRequest
-                   (DiscardCardRequest (getCardIdAt game playerName discardWhat)))
-              (checkHint game playerName >=> extractColorHint -> Just (hintWhom, hintColor)) -> do
-                SendRequest (HintColorRequest hintWhom hintColor)
-              (checkHint game playerName >=> extractNumberHint -> Just (hintWhom, hintNumber)) -> do
-                SendRequest (HintNumberRequest hintWhom hintNumber)
-              _ -> InputErr "couldn't read input"
+      pure
+        (case games of
+           Nothing -> InputErr "Game has not started yet"
+           Just (game :| _) ->
+             case input of
+               (checkPlay game playerName -> Just playWhat) -> do
+                 dispatchInput (fmap PlayCardRequest playWhat)
+               (checkDiscard game playerName -> Just discard) -> do
+                 dispatchInput (fmap DiscardCardRequest discard)
+               (checkHint game playerName -> Just hint) ->
+                 case hint of
+                   (Left err) -> InputErr err
+                   (parseColorHint -> Right (hintWhom, col)) ->
+                     SendRequest (HintColorRequest hintWhom col)
+                   (parseNumberHint -> Right (hintWhom, num)) ->
+                     SendRequest (HintNumberRequest hintWhom num)
+                   _ ->
+                     InputErr
+                       "Hints must end with a number (e.g. 1 or one) or a color (e.g. blue or yellow)"
+               _ -> InputErr "couldn't read input")
+    _ ->
+      pure
+        (InputErr
+           ("Available commands are:" <>
+            Text.unlines
+              [ "'start'"
+              , "'play' " <> cardIndexMsg
+              , "discard " <> cardIndexMsg
+              , "hint [player name] [color or number]"
+              ]))
+  where
+    cardIndexMsg = "[card index, e.g. 0]"
 
 isCommand s
   | any (`Text.isPrefixOf` s) ["play", "discard", "hint"] = Just s
   | otherwise = Nothing
 
-extractNumberHint :: (a, Text) -> Either Text (a, Number)
-extractNumberHint = traverse parseNumber
+parseNumberHint :: Parsed (a, Text) -> Parsed (a, Number)
+parseNumberHint = (>>= traverse parseNumber)
 
 parseNumber :: Text -> Either Text Number
 parseNumber s =
@@ -71,8 +97,8 @@ parseNumber s =
     "five" -> Right Five
     _ -> Left ("Failed to interpret " <> s <> " as a number hint.")
 
-extractColorHint :: (a, Text) -> Either Text (a, Color)
-extractColorHint = traverse parseColor
+parseColorHint :: Parsed (a, Text) -> Parsed (a, Color)
+parseColorHint = (>>= traverse parseColor)
 
 parseColor :: Text -> Either Text Color
 parseColor s
@@ -85,42 +111,48 @@ parseColor s
   where
     startsWith = Text.isPrefixOf (Text.toLower s)
 
-checkDiscard :: Hanabi.Game -> Hanabi.PlayerId -> Text -> Maybe Int
+checkDiscard :: Hanabi.Game -> Hanabi.PlayerId -> Text -> Maybe (Parsed Int)
 checkDiscard game name input = do
   discardWhat <- Text.stripPrefix "discard" input
   i <- readT discardWhat
-  checkCardIndex game name i
-  --FIXME
+  pure (getCardIdAt game name i)
 
-checkPlay :: Hanabi.Game -> Hanabi.PlayerId -> Text -> Maybe Int
+checkPlay :: Hanabi.Game -> Hanabi.PlayerId -> Text -> Maybe (Parsed Int)
 checkPlay game name input = do
   playWhat <- Text.stripPrefix "play" input
   i <- readT playWhat
-  checkCardIndex game name i
-  --FIXME
+  pure (getCardIdAt game name i)
 
-checkHint :: Hanabi.Game -> Hanabi.PlayerId -> Text -> Maybe (Text, Text)
+checkHint :: Hanabi.Game
+          -> Hanabi.PlayerId
+          -> Text
+          -> Maybe (Parsed (Text, Text))
 checkHint game name input = do
   params <- Text.stripPrefix "hint" input
-  let tokens = Text.words params
-  guard (length tokens >= 2)
-  let hintWhom = Text.concat (init tokens)
-  let hintWhat = last tokens
-  guard (hintWhom /= (convertString name))
-  guard
-    ((Hanabi.PlayerId hintWhom) `elem`
-     (view (Hanabi.playerHands . to Map.keys) game))
-  return (hintWhom, hintWhat)
+  pure
+    (do let tokens = Text.words params
+        guardMsg
+          "'hint' must be followed by the name of the targeted player and a number or color."
+          (length tokens >= 2)
+        let hintWhom = Text.concat (init tokens)
+        guardMsg "You can't hint yourself." (hintWhom /= (convertString name))
+        let hintWhat = last tokens
+        guardMsg
+          ("Player " <> hintWhom <> " not found.")
+          ((Hanabi.PlayerId hintWhom) `elem`
+           (view (Hanabi.playerHands . to Map.keys) game))
+        pure (hintWhom, hintWhat))
 
-checkCardIndex :: Hanabi.Game -> Hanabi.PlayerId -> Int -> Maybe Int
-checkCardIndex game name i
-  | i >= 0 && i < handSize = Just i
-  | otherwise = Nothing
+guardMsg :: Text -> Bool -> Parsed ()
+guardMsg _ True = Right ()
+guardMsg msg False = Left msg
+
+getCardIdAt :: Hanabi.Game -> Hanabi.PlayerId -> Int -> Parsed Int
+getCardIdAt g n i
+  | i >= 0 && i < length hand = Right (hand !! i)
+  | otherwise = Left ("No card at position" <> showT i)
   where
-    handSize = length (myHand game name)
-
-getCardIdAt :: Hanabi.Game -> Hanabi.PlayerId -> Int -> Int
-getCardIdAt g n i = view (Hanabi.cardId) (fst ((myHand g n) !! i))
+    hand = fmap (view Hanabi.cardId . fst) (myHand g n)
 
 myHand :: Hanabi.Game -> Hanabi.PlayerId -> Hanabi.Hand
 myHand game name = view (Hanabi.playerHands . at name . non []) game
