@@ -13,6 +13,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Data.List.NonEmpty as List
 import Data.List.NonEmpty (NonEmpty((:|)))
 import qualified Data.Map.Strict as Map
+import Data.Monoid ((<>))
 import Data.String.Conversions (convertString, ConvertibleStrings)
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -52,32 +53,37 @@ isCommand s
   | any (`Text.isPrefixOf` s) ["play", "discard", "hint"] = Just s
   | otherwise = Nothing
 
-extractNumberHint :: (a, Text) -> Maybe (a, Number)
-extractNumberHint (x, s) =
+extractNumberHint :: (a, Text) -> Either Text (a, Number)
+extractNumberHint = traverse parseNumber
+
+parseNumber :: Text -> Either Text Number
+parseNumber s =
   case Text.toLower s of
-    "1" -> Just (x, One)
-    "2" -> Just (x, Two)
-    "3" -> Just (x, Three)
-    "4" -> Just (x, Four)
-    "5" -> Just (x, Five)
-    "one" -> Just (x, One)
-    "two" -> Just (x, Two)
-    "three" -> Just (x, Three)
-    "four" -> Just (x, Four)
-    "five" -> Just (x, Five)
-    _ -> Nothing
+    "1" -> Right One
+    "one" -> Right One
+    "2" -> Right Two
+    "two" -> Right Two
+    "3" -> Right Three
+    "three" -> Right Three
+    "4" -> Right Four
+    "four" -> Right Four
+    "5" -> Right Five
+    "five" -> Right Five
+    _ -> Left ("Failed to interpret " <> s <> " as a number hint.")
 
-extractColorHint :: (a, Text) -> Maybe (a, Color)
-extractColorHint (x, c) = fmap (x, ) (toColorHint c)
+extractColorHint :: (a, Text) -> Either Text (a, Color)
+extractColorHint = traverse parseColor
 
-toColorHint :: Text -> Maybe Color
-toColorHint s
-  | ((Text.toLower s) `Text.isPrefixOf` "white") = Just White
-  | ((Text.toLower s) `Text.isPrefixOf` "yellow") = Just Yellow
-  | ((Text.toLower s) `Text.isPrefixOf` "green") = Just Green
-  | ((Text.toLower s) `Text.isPrefixOf` "blue") = Just Blue
-  | ((Text.toLower s) `Text.isPrefixOf` "red") = Just Red
-  | otherwise = Nothing
+parseColor :: Text -> Either Text Color
+parseColor s
+  | startsWith "white" = Right White
+  | startsWith "yellow" = Right Yellow
+  | startsWith "green" = Right Green
+  | startsWith "blue" = Right Blue
+  | startsWith "red" = Right Red
+  | otherwise = Left ("Failed to interpret " <> s <> " as a color hint.")
+  where
+    startsWith = Text.isPrefixOf (Text.toLower s)
 
 checkDiscard :: Hanabi.Game -> Hanabi.PlayerId -> Text -> Maybe Int
 checkDiscard game name input = do
