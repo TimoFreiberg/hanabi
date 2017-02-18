@@ -4,13 +4,18 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE FlexibleContexts #-}
 
-module Hanabi.Client.Cli where
+module Hanabi.Client.Cli
+  ( inputHandler
+  , ask
+  , getLn
+  , putLn
+  , showT
+  , InputReaction(..)
+  ) where
 
 import Control.Concurrent.MVar (tryReadMVar, MVar)
 import Control.Lens (view, at, non, to)
-import Control.Monad ((>=>), guard)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import qualified Data.List.NonEmpty as List
 import Data.List.NonEmpty (NonEmpty((:|)))
 import qualified Data.Map.Strict as Map
 import Data.Monoid ((<>))
@@ -21,43 +26,42 @@ import qualified Data.Text.IO as IO
 import Text.Read (readMaybe)
 
 import qualified Hanabi
-import Hanabi.Client.Messaging
+import qualified Hanabi.Client.Messaging as Msg
 
 data InputReaction
-  = SendRequest Request
+  = SendRequest Msg.Request
   | InputErr Text
   deriving (Show)
 
 type Parsed a = Either Text a
 
-dispatchInput :: Parsed Request -> InputReaction
+dispatchInput :: Parsed Msg.Request -> InputReaction
 dispatchInput = either InputErr SendRequest
 
-inputHandler :: (MVar (NonEmpty Hanabi.Game))
-             -> Hanabi.PlayerId
-             -> Text
-             -> IO InputReaction
+inputHandler
+  :: MonadIO m
+  => (MVar (NonEmpty Hanabi.Game)) -> Hanabi.PlayerId -> Text -> m InputReaction
 inputHandler gameStore playerName input =
   case input of
-    "start" -> return (SendRequest GameStartRequest)
-    (isCommand -> Just command) -> do
-      games <- tryReadMVar gameStore
+    "start" -> return (SendRequest Msg.GameStartRequest)
+    (isCommand -> Just _) -> do
+      games <- liftIO (tryReadMVar gameStore)
       pure
         (case games of
            Nothing -> InputErr "Game has not started yet"
            Just (game :| _) ->
              case input of
                (checkPlay game playerName -> Just playWhat) -> do
-                 dispatchInput (fmap PlayCardRequest playWhat)
+                 dispatchInput (fmap Msg.PlayCardRequest playWhat)
                (checkDiscard game playerName -> Just discard) -> do
-                 dispatchInput (fmap DiscardCardRequest discard)
+                 dispatchInput (fmap Msg.DiscardCardRequest discard)
                (checkHint game playerName -> Just hint) ->
                  case hint of
                    (Left err) -> InputErr err
                    (parseColorHint -> Right (hintWhom, col)) ->
-                     SendRequest (HintColorRequest hintWhom col)
+                     SendRequest (Msg.HintColorRequest hintWhom col)
                    (parseNumberHint -> Right (hintWhom, num)) ->
-                     SendRequest (HintNumberRequest hintWhom num)
+                     SendRequest (Msg.HintNumberRequest hintWhom num)
                    _ ->
                      InputErr
                        "Hints must end with a number (e.g. 1 or one) or a color (e.g. blue or yellow)"
@@ -75,38 +79,39 @@ inputHandler gameStore playerName input =
   where
     cardIndexMsg = "[card index, e.g. 0]"
 
+isCommand :: Text -> Maybe Text
 isCommand s
   | any (`Text.isPrefixOf` s) ["play", "discard", "hint"] = Just s
   | otherwise = Nothing
 
-parseNumberHint :: Parsed (a, Text) -> Parsed (a, Number)
+parseNumberHint :: Parsed (a, Text) -> Parsed (a, Msg.Number)
 parseNumberHint = (>>= traverse parseNumber)
 
-parseNumber :: Text -> Either Text Number
+parseNumber :: Text -> Either Text Msg.Number
 parseNumber s =
   case Text.toLower s of
-    "1" -> Right One
-    "one" -> Right One
-    "2" -> Right Two
-    "two" -> Right Two
-    "3" -> Right Three
-    "three" -> Right Three
-    "4" -> Right Four
-    "four" -> Right Four
-    "5" -> Right Five
-    "five" -> Right Five
+    "1" -> Right Msg.One
+    "one" -> Right Msg.One
+    "2" -> Right Msg.Two
+    "two" -> Right Msg.Two
+    "3" -> Right Msg.Three
+    "three" -> Right Msg.Three
+    "4" -> Right Msg.Four
+    "four" -> Right Msg.Four
+    "5" -> Right Msg.Five
+    "five" -> Right Msg.Five
     _ -> Left ("Failed to interpret " <> s <> " as a number hint.")
 
-parseColorHint :: Parsed (a, Text) -> Parsed (a, Color)
+parseColorHint :: Parsed (a, Text) -> Parsed (a, Msg.Color)
 parseColorHint = (>>= traverse parseColor)
 
-parseColor :: Text -> Either Text Color
+parseColor :: Text -> Either Text Msg.Color
 parseColor s
-  | startsWith "white" = Right White
-  | startsWith "yellow" = Right Yellow
-  | startsWith "green" = Right Green
-  | startsWith "blue" = Right Blue
-  | startsWith "red" = Right Red
+  | startsWith "white" = Right Msg.White
+  | startsWith "yellow" = Right Msg.Yellow
+  | startsWith "green" = Right Msg.Green
+  | startsWith "blue" = Right Msg.Blue
+  | startsWith "red" = Right Msg.Red
   | otherwise = Left ("Failed to interpret " <> s <> " as a color hint.")
   where
     startsWith = Text.isPrefixOf (Text.toLower s)
@@ -155,7 +160,7 @@ getCardIdAt g n i
     hand = fmap (view Hanabi.cardId . fst) (myHand g n)
 
 myHand :: Hanabi.Game -> Hanabi.PlayerId -> Hanabi.Hand
-myHand game name = view (Hanabi.playerHands . at name . non []) game
+myHand g n = view (Hanabi.playerHands . at n . non []) g
 
 ask
   :: MonadIO m

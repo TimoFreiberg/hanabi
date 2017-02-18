@@ -10,19 +10,16 @@ module Hanabi.Client
 
 import Control.Concurrent.Async (async, cancel)
 import Control.Concurrent.MVar
-       (MVar, newEmptyMVar, putMVar, tryTakeMVar, readMVar)
-import Control.Lens (view, at, to, non)
-import Control.Monad (guard, (>=>))
+       (MVar, newEmptyMVar, putMVar, tryTakeMVar)
 import Control.Monad.IO.Class (liftIO, MonadIO)
 import Control.Monad.Logger (LoggingT, MonadLogger)
 import Control.Monad.Trans.Class (lift)
 import Data.Aeson (encode, eitherDecode, ToJSON)
 import Data.Aeson.Encode.Pretty (encodePretty)
 import qualified Data.List.NonEmpty as List
-import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
-import Data.String.Conversions (convertString, ConvertibleStrings)
+import Data.String.Conversions (convertString)
 import qualified Data.Text as Text
 import Data.Text (Text)
 import qualified Network.WebSockets as WS
@@ -80,10 +77,10 @@ client logger myName conn = do
   let myId = Hanabi.PlayerId myName
   let inputHandler = do
         input <- Text.toLower <$> Cli.getLn
-        response <- Cli.handleInput gameStore myId input
+        response <- Cli.inputHandler gameStore myId input
         case response of
-          SendRequest r -> send conn r
-          InputErr e -> putLn e
+          Cli.SendRequest r -> send conn r
+          Cli.InputErr e -> Cli.putLn e
   let loop = do
         inputHandler
         liftIO (tryTakeMVar gameEnded) >>= \case
@@ -104,7 +101,7 @@ receiver myName gameStore gameEnded conn =
       case response of
         Msg.GameOverResponse finalScore -> do
           liftIO (putMVar gameEnded ())
-          Cli.putLn ("game over - score: " <> showT finalScore)
+          Cli.putLn ("game over - score: " <> Cli.showT finalScore)
         Msg.ErrorResponse expl details -> do
           logWarn
             ("received error message:\n" <> fromMaybe "" details <> "\n" <> expl)
