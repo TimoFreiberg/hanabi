@@ -24,6 +24,7 @@ library
                      , Hanabi.Client
                      , Hanabi.Client.Messaging
                      , Hanabi.Client.Cli
+                     , Hanabi.Ui
                      , Hanabi.Logging
                      , Hanabi.Client.Config
   build-depends:       base >= 4.7 && < 5
@@ -43,6 +44,8 @@ library
                      , directory
                      , escape-artist
                      , string-conversions
+                     , brick
+                     , vty
   default-language:    Haskell2010
 
 executable hanabi-exe
