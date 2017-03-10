@@ -1,5 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module Hanabi.Ui where
 
@@ -10,16 +11,20 @@ import qualified Brick.Types as Brk
 import qualified Brick.Widgets.Center as Brk
 import Brick.Widgets.Core ((<+>), (<=>), hLimit, vLimit, txt)
 import qualified Brick.Widgets.Edit as Brk
-import Control.Lens ((^.), makeLenses, to)
+import Control.Lens ((^.), makeLenses, to, ix)
 import Data.Aeson (eitherDecode)
 import Data.List.NonEmpty (NonEmpty((:|)), (<|))
 import qualified Data.List.NonEmpty as NE
+import qualified Data.Map.Strict as Map
 import Data.Monoid ((<>))
+import Data.String.Conversions (convertString, ConvertibleStrings)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Graphics.Vty as Brk
 
 import qualified Hanabi
+import Hanabi (playerHands)
+import qualified Hanabi.Game as Hanabi
 import qualified Hanabi.Print as Print
 
 data WName =
@@ -37,8 +42,8 @@ data Mode
   | Choosing Action
   | Playing Hanabi.Card
   | Discarding Hanabi.Card
-  | Hinting Hanabi.PlayerId
-            Hanabi.Hint
+  | HintingWhom Hanabi.PlayerId
+  | HintingWhat Hanabi.Hint
 
 data Action
   = Play
@@ -50,31 +55,57 @@ makeLenses ''State
 drawUI :: State -> [Brk.Widget WName]
 drawUI st = [ui]
   where
+    player = st ^. playerName
+    currentGame = st ^. games . to NE.head
     ui =
       Brk.center
-        (txt
-           (Print.selectiveFairPrint
-              (st ^. playerName)
-              (st ^. games . to NE.head)) <=>
-         (Brk.padTop (Brk.Pad 5) Brk.emptyWidget <=>
-          txt (showInput (st ^. mode))))
+        (txt (Print.selectiveFairPrint player currentGame) <=>
+         (Brk.padTop (Brk.Pad 5) (txt (showInput (st ^. mode)))))
     showInput Waiting = "Waiting for your turn..."
     showInput (Choosing _) =
-      Text.unlines ["(P)lay Card", "(D)iscard Card", "(H)int another Player"]
-    showInput (Playing _) = Text.unlines (zipWith (<>) undefined undefined) --FIXME 
+      Text.unlines $
+      fmap
+        hotkeyize
+        ["Play Card" :: String, "Discard Card", "Hint another Player"]
+    showInput (Playing _) = "Play Card:\n" <> listCards
+    showInput (Discarding _) = "Discard Card:\n" <> listCards
+    showInput (HintingWhom _) = "Hint player:\n" <> listOtherPlayers
+    showInput (HintingWhat _) =
+      "Give color or number hint:\n" <> listColorHints <> listNumberHints
+    listOtherPlayers =
+      Text.unlines . numberList $
+      (currentGame ^. playerHands . to Map.keys . to (filter (/= player)) .
+       to (fmap Hanabi.unPlayerId))
+    listCards =
+      Text.unlines
+        (fmap
+           hotkeyize
+           (numberList
+              (Print.hiddenHand $ currentGame ^. playerHands . ix player)))
+    listColorHints = Text.unlines (fmap (hotkeyize . show) Hanabi.colors)
+    listNumberHints = Text.unlines (fmap (hotkeyize . show) Hanabi.numbers)
+    numberList = zipWith (<>) ((<> ": ") . Text.pack . show <$> [1 :: Int ..])
+
+hotkeyize
+  :: ConvertibleStrings a String
+  => a -> Text
+hotkeyize = Text.pack . parenHead . convertString
+  where
+    parenHead [] = []
+    parenHead (x:xs) = '(' : x : ')' : xs
 
 appEvent :: State -> Brk.BrickEvent WName e -> Brk.EventM WName (Brk.Next State)
 appEvent st (Brk.VtyEvent ev) =
   case ev of
     Brk.EvKey Brk.KEsc [] -> Brk.halt st
     Brk.EvKey (Brk.KChar '\t') [] -> Brk.continue st
-    _ -> Brk.continue =<< undefined -- FIXME handle input
+    _ -> Brk.halt st --Brk.continue =<< undefined -- FIXME handle input
 appEvent st _ = Brk.continue st
 
 theMap :: Brk.AttrMap
 theMap = Brk.attrMap Brk.defAttr []
 
-initState = State (exampleGame :| []) "Alice" Waiting
+initState = State (exampleGame :| []) "Alice" (Choosing Play)
 
 app :: Brk.App State e WName
 app =

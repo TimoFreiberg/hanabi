@@ -30,18 +30,7 @@ selectiveFairPrint player (Game actingPlayer' playerHands' deck' playedCards' di
      , ""
      , "Hands:"
      , Text.concat
-         [ pprint pId <> ":\n" <>
-         Text.concat
-           [ showT i <> ". " <>
-           (if pId == player
-              then ""
-              else pprint card) <>
-           " " <>
-           pprint facts <>
-           "\n"
-           | (i, (card, facts)) <- zip [0 :: Int ..] hand
-           ] <>
-         "\n"
+         [ pprint pId <> ":\n" <> printHand pId hand <> "\n"
          | (pId, hand) <- Map.assocs playerHands'
          ]
      , "Played Cards:"
@@ -54,6 +43,24 @@ selectiveFairPrint player (Game actingPlayer' playerHands' deck' playedCards' di
      , "fuckups: " <> showT fuckups'
      , maybe "" (("\nTurns left: " <>) . showT) turnsLeft'
      ])
+  where
+    printHand p h =
+      if p == player
+        then Text.concat (hiddenHand h)
+        else showHand h
+
+showHand :: Hand -> Text
+showHand hand =
+  Text.concat
+    [ showT i <> ". " <> pprint card <> " " <> pprint facts <> "\n"
+    | (i, (card, facts)) <- zip [0 :: Int ..] hand
+    ]
+
+hiddenHand :: Hand -> [Text]
+hiddenHand hand =
+  [ showT i <> ". " <> " " <> pprint facts <> "\n"
+  | (i, (_, facts)) <- zip [0 :: Int ..] hand
+  ]
 
 fairPrint :: Game -> Text
 fairPrint game = selectiveFairPrint (view activePlayer game) game
