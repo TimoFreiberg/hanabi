@@ -4,15 +4,15 @@ module Hanabi.Repl where
 
 import Hanabi
 import Hanabi.Game
-import Hanabi.Transitions
 import Hanabi.Print
+import Hanabi.Transitions
 
-import Data.IORef
-import System.IO.Unsafe (unsafePerformIO)
 import Control.Monad (when)
+import Data.IORef
+import qualified Data.Text.IO as IO
+import System.IO.Unsafe (unsafePerformIO)
 
 {-# NOINLINE gameRef #-}
-
 gameRef :: IORef [Game]
 gameRef = unsafePerformIO (newIORef [])
 
@@ -24,13 +24,13 @@ startGame [] = error "no players"
 startGame (x:xs) = do
   game <- initState x xs
   writeIORef gameRef [game]
-  fairPrint game
+  IO.putStrLn $ fairPrint game
 
 turn :: (Game -> Either GameOver Game) -> IO ()
 turn f = do
-  game <- getLastState
-  case f game of
-    Right game' -> fairPrint game' >> recordGame game'
+  game1 <- getLastState
+  case f game1 of
+    Right game2 -> IO.putStrLn (fairPrint game2) >> recordGame game2
     Left over -> print over
 
 recordGame :: Game -> IO ()

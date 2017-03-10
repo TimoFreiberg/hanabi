@@ -22,46 +22,40 @@ prettyPrint
   => a -> m ()
 prettyPrint = liftIO . IO.putStrLn . pprint
 
-selectiveFairPrint
-  :: MonadIO m
-  => PlayerId -> Game -> m ()
+selectiveFairPrint :: PlayerId -> Game -> Text
 selectiveFairPrint player (Game actingPlayer' playerHands' deck' playedCards' discardedCards' hints' fuckups' turnsLeft') =
-  liftIO $
-  IO.putStrLn
-    (Text.intercalate
-       "\n"
-       [ "Active: " <> pprint actingPlayer'
-       , ""
-       , "Hands:"
-       , Text.concat
-           [ pprint pId <> ":\n" <>
-           Text.concat
-             [ showT i <> ". " <>
-             (if pId == player
-                then ""
-                else pprint card) <>
-             " " <>
-             pprint facts <>
-             "\n"
-             | (i, (card, facts)) <- zip [0 :: Int ..] hand
-             ] <>
+  (Text.intercalate
+     "\n"
+     [ "Active: " <> pprint actingPlayer'
+     , ""
+     , "Hands:"
+     , Text.concat
+         [ pprint pId <> ":\n" <>
+         Text.concat
+           [ showT i <> ". " <>
+           (if pId == player
+              then ""
+              else pprint card) <>
+           " " <>
+           pprint facts <>
            "\n"
-           | (pId, hand) <- Map.assocs playerHands'
-           ]
-       , "Played Cards:"
-       , pprint playedCards'
-       , "Discarded Cards:"
-       , "  " <> pprint discardedCards'
-       , "Cards in deck:"
-       , "  " <> showT (length deck')
-       , "hints: " <> showT hints'
-       , "fuckups: " <> showT fuckups'
-       , maybe "" (("\nTurns left: " <>) . showT) turnsLeft'
-       ])
+           | (i, (card, facts)) <- zip [0 :: Int ..] hand
+           ] <>
+         "\n"
+         | (pId, hand) <- Map.assocs playerHands'
+         ]
+     , "Played Cards:"
+     , pprint playedCards'
+     , "Discarded Cards:"
+     , "  " <> pprint discardedCards'
+     , "Cards in deck:"
+     , "  " <> showT (length deck')
+     , "hints: " <> showT hints'
+     , "fuckups: " <> showT fuckups'
+     , maybe "" (("\nTurns left: " <>) . showT) turnsLeft'
+     ])
 
-fairPrint
-  :: MonadIO m
-  => Game -> m ()
+fairPrint :: Game -> Text
 fairPrint game = selectiveFairPrint (view activePlayer game) game
 
 class Pprint a where

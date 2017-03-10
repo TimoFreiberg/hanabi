@@ -114,7 +114,7 @@ receiver myName gameStore gameEnded conn =
           liftIO
             (tryTakeMVar gameStore >>=
              (putMVar gameStore . (maybe (game List.:| [])) (game List.<|)))
-          Print.selectiveFairPrint (Hanabi.PlayerId myName) game
+          Cli.putLn (Print.selectiveFairPrint (Hanabi.PlayerId myName) game)
           loop
     Left parseError -> logWarn (convertString parseError) >> loop
   where

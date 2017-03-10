@@ -4,5 +4,5 @@ import Hanabi.Client
 import Hanabi.Ui (startApp)
 
 main :: IO ()
-main = startClient
--- main = startApp >> return ()
+-- main = startClient
+main = startApp >> return ()

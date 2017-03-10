@@ -3,20 +3,24 @@
 
 module Hanabi.Ui where
 
-import qualified Brick as Brick
-import qualified Brick.AttrMap as A
-import qualified Brick.Main as M
-import qualified Brick.Types as T
-import qualified Brick.Widgets.Center as C
+import qualified Brick as Brk
+import qualified Brick.AttrMap as Brk
+import qualified Brick.Main as Brk
+import qualified Brick.Types as Brk
+import qualified Brick.Widgets.Center as Brk
 import Brick.Widgets.Core ((<+>), (<=>), hLimit, vLimit, txt)
-import qualified Brick.Widgets.Edit as E
-import Control.Lens ((^.), makeLenses)
+import qualified Brick.Widgets.Edit as Brk
+import Control.Lens ((^.), makeLenses, to)
 import Data.Aeson (eitherDecode)
 import Data.List.NonEmpty (NonEmpty((:|)), (<|))
+import qualified Data.List.NonEmpty as NE
+import Data.Monoid ((<>))
 import Data.Text (Text)
 import qualified Data.Text as Text
-import qualified Graphics.Vty as V
+import qualified Graphics.Vty as Brk
+
 import qualified Hanabi
+import qualified Hanabi.Print as Print
 
 data WName =
   TextField
@@ -25,47 +29,64 @@ data WName =
 data State = State
   { _games :: NonEmpty Hanabi.Game
   , _playerName :: Hanabi.PlayerId
-  , _edit :: E.Editor Text WName
+  , _mode :: Mode
   }
+
+data Mode
+  = Waiting
+  | Choosing Action
+  | Playing Hanabi.Card
+  | Discarding Hanabi.Card
+  | Hinting Hanabi.PlayerId
+            Hanabi.Hint
+
+data Action
+  = Play
+  | Discard
+  | Hint
 
 makeLenses ''State
 
-drawUI :: State -> [T.Widget WName]
+drawUI :: State -> [Brk.Widget WName]
 drawUI st = [ui]
   where
-    e = E.renderEditor True (st ^. edit)
     ui =
-      C.center
-        (txt "text field todo" <=> txt "enter command here" <+> (hLimit 50 e))
+      Brk.center
+        (txt
+           (Print.selectiveFairPrint
+              (st ^. playerName)
+              (st ^. games . to NE.head)) <=>
+         (Brk.padTop (Brk.Pad 5) Brk.emptyWidget <=>
+          txt (showInput (st ^. mode))))
+    showInput Waiting = "Waiting for your turn..."
+    showInput (Choosing _) =
+      Text.unlines ["(P)lay Card", "(D)iscard Card", "(H)int another Player"]
+    showInput (Playing _) = Text.unlines (zipWith (<>) undefined undefined) --FIXME 
 
-appEvent :: State -> T.BrickEvent WName e -> T.EventM WName (T.Next State)
-appEvent st (T.VtyEvent ev) =
+appEvent :: State -> Brk.BrickEvent WName e -> Brk.EventM WName (Brk.Next State)
+appEvent st (Brk.VtyEvent ev) =
   case ev of
-    V.EvKey V.KEsc [] -> M.halt st
-    V.EvKey (V.KChar '\t') [] -> M.continue st
-    _ -> M.continue =<< T.handleEventLensed st edit E.handleEditorEvent ev
-appEvent st _ = M.continue st
+    Brk.EvKey Brk.KEsc [] -> Brk.halt st
+    Brk.EvKey (Brk.KChar '\t') [] -> Brk.continue st
+    _ -> Brk.continue =<< undefined -- FIXME handle input
+appEvent st _ = Brk.continue st
 
-theMap :: A.AttrMap
-theMap = A.attrMap V.defAttr []
+theMap :: Brk.AttrMap
+theMap = Brk.attrMap Brk.defAttr []
 
-initState =
-  State
-    (exampleGame :| [])
-    "Alice"
-    (E.editor TextField (txt . Text.unlines) (Just 1) "")
+initState = State (exampleGame :| []) "Alice" Waiting
 
-app :: M.App State e WName
+app :: Brk.App State e WName
 app =
-  M.App
-  { M.appDraw = drawUI
-  , M.appChooseCursor = M.showFirstCursor
-  , M.appHandleEvent = appEvent
-  , M.appStartEvent = return
-  , M.appAttrMap = const theMap
+  Brk.App
+  { Brk.appDraw = drawUI
+  , Brk.appChooseCursor = Brk.showFirstCursor
+  , Brk.appHandleEvent = appEvent
+  , Brk.appStartEvent = return
+  , Brk.appAttrMap = const theMap
   }
 
-startApp = M.defaultMain app initState
+startApp = Brk.defaultMain app initState
 
 fromRight
   :: Show l
