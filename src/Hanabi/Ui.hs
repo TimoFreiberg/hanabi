@@ -5,15 +5,12 @@
 module Hanabi.Ui where
 
 import qualified Brick as Brk
-import qualified Brick.AttrMap as Brk
-import qualified Brick.Main as Brk
-import qualified Brick.Types as Brk
 import qualified Brick.Widgets.Center as Brk
-import Brick.Widgets.Core ((<+>), (<=>), hLimit, vLimit, txt)
-import qualified Brick.Widgets.Edit as Brk
-import Control.Lens ((^.), makeLenses, to, ix)
+import Brick.Widgets.Core ((<=>), txt)
+import Control.Lens ((^.), makeLenses, to, ix, (.~))
 import Data.Aeson (eitherDecode)
-import Data.List.NonEmpty (NonEmpty((:|)), (<|))
+import Data.Function ((&))
+import Data.List.NonEmpty (NonEmpty((:|)))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as Map
 import Data.Monoid ((<>))
@@ -38,12 +35,13 @@ data State = State
   }
 
 data Mode
-  = Waiting
-  | Choosing Action
-  | Playing Hanabi.Card
-  | Discarding Hanabi.Card
-  | HintingWhom Hanabi.PlayerId
-  | HintingWhat Hanabi.Hint
+  = Quitting Mode
+  | Waiting
+  | Choosing
+  | Playing
+  | Discarding
+  | HintingWhom
+  | HintingWhat Hanabi.PlayerId
 
 data Action
   = Play
@@ -61,15 +59,18 @@ drawUI st = [ui]
       Brk.center
         (txt (Print.selectiveFairPrint player currentGame) <=>
          (Brk.padTop (Brk.Pad 5) (txt (showInput (st ^. mode)))))
+    showInput (Quitting _) = "(Q)uit? Press Esc to cancel"
     showInput Waiting = "Waiting for your turn..."
-    showInput (Choosing _) =
+    showInput (Choosing) =
       Text.unlines $
-      fmap
-        hotkeyize
-        ["Play Card" :: String, "Discard Card", "Hint another Player"]
-    showInput (Playing _) = "Play Card:\n" <> listCards
-    showInput (Discarding _) = "Discard Card:\n" <> listCards
-    showInput (HintingWhom _) = "Hint player:\n" <> listOtherPlayers
+      [ "(P)lay Card"
+      , "(D)iscard Card"
+      , "(H)int another Player"
+      , "(Esc) to quit"
+      ]
+    showInput (Playing) = "Play Card:\n" <> listCards
+    showInput (Discarding) = "Discard Card:\n" <> listCards
+    showInput (HintingWhom) = "Hint player:\n" <> listOtherPlayers
     showInput (HintingWhat _) =
       "Give color or number hint:\n" <> listColorHints <> listNumberHints
     listOtherPlayers =
@@ -97,15 +98,48 @@ hotkeyize = Text.pack . parenHead . convertString
 appEvent :: State -> Brk.BrickEvent WName e -> Brk.EventM WName (Brk.Next State)
 appEvent st (Brk.VtyEvent ev) =
   case ev of
-    Brk.EvKey Brk.KEsc [] -> Brk.halt st
-    Brk.EvKey (Brk.KChar '\t') [] -> Brk.continue st
-    _ -> Brk.halt st --Brk.continue =<< undefined -- FIXME handle input
+    (Brk.EvKey Brk.KEsc []) ->
+      case st ^. mode of
+        Quitting m -> Brk.continue (nextMode m)
+        Waiting -> Brk.continue (nextMode (Quitting Waiting))
+        Choosing -> Brk.continue (nextMode (Quitting Choosing))
+        Playing -> Brk.continue (nextMode Choosing)
+        Discarding -> Brk.continue (nextMode Choosing)
+        HintingWhom -> Brk.continue (nextMode Choosing)
+        HintingWhat _ -> Brk.continue (nextMode HintingWhom)
+    (Brk.EvKey (Brk.KChar 'q') []) ->
+      case st ^. mode of
+        Quitting _ -> Brk.halt st
+        _ -> ignore
+    (Brk.EvKey (Brk.KChar 'p') []) ->
+      case st ^. mode of
+        Choosing -> Brk.continue (nextMode Playing)
+        _ -> ignore
+    (Brk.EvKey (Brk.KChar 'd') []) ->
+      case st ^. mode of
+        Choosing -> Brk.continue (nextMode Discarding)
+        _ -> ignore
+    (Brk.EvKey (Brk.KChar 'h') []) ->
+      case st ^. mode of
+        Choosing -> Brk.continue (nextMode HintingWhom)
+        _ -> ignore
+    (Brk.EvKey (Brk.KChar digit) []) ->
+      case digit of
+        n
+          | n `elem` ("12345" :: String) ->
+            Brk.continue (nextMode (HintingWhat "")) --FIXME
+          | otherwise -> Brk.continue st
+    _ -> ignore
+  where
+    ignore = Brk.continue st
+    nextMode m = st & mode .~ m
 appEvent st _ = Brk.continue st
 
 theMap :: Brk.AttrMap
 theMap = Brk.attrMap Brk.defAttr []
 
-initState = State (exampleGame :| []) "Alice" (Choosing Play)
+initState :: State
+initState = State (exampleGame :| []) "Alice" (Choosing)
 
 app :: Brk.App State e WName
 app =
@@ -117,6 +151,7 @@ app =
   , Brk.appAttrMap = const theMap
   }
 
+startApp :: IO State
 startApp = Brk.defaultMain app initState
 
 fromRight
